@@ -1,0 +1,82 @@
+name: dfms-ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-secure:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Static security analysis (Bandit)
+        run: bandit -r app/command_service.py app/main.py -ll
+
+      - name: Dependency audit
+        run: pip-audit -r requirements-dev.txt || true
+
+      - name: Unit, integration and system tests
+        run: pytest -q --cov=app.command_service --cov-fail-under=85
+
+      - name: Fuzz test
+        run: python fuzz/fuzz_validation.py
+
+      - name: Build container image
+        run: docker build -t dfms:${{ github.sha }} .
+
+      - name: Image vulnerability scan (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: dfms:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      - name: Validate Kubernetes manifests
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+          ./kubeconform -strict -summary k8s/
+
+  package:
+    needs: build-test-secure
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push (tagged by commit SHA)
+        run: |
+          docker build -t ghcr.io/${{ github.repository }}/dfms:${{ github.sha }} .
+          docker push ghcr.io/${{ github.repository }}/dfms:${{ github.sha }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: k8s-manifests
+          path: k8s/

@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dfms-command
+  namespace: dfms
+  labels: {app: dfms-command}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: dfms-command}
+  template:
+    metadata:
+      labels: {app: dfms-command}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: command
+          image: dfms:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DFMS_SIGNING_KEY
+              valueFrom: {secretKeyRef: {name: dfms-secrets, key: signing-key}}
+            - name: DFMS_DEMO_TOKENS
+              valueFrom: {secretKeyRef: {name: dfms-secrets, key: demo-tokens}}
+            - name: DFMS_SEED
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+            limits:   {cpu: 500m, memory: 256Mi}
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            initialDelaySeconds: 10
+            periodSeconds: 20

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: dfms-command
+  namespace: dfms
+spec:
+  type: ClusterIP            # not exposed externally; reached via the API gateway/Ingress only
+  selector: {app: dfms-command}
+  ports:
+    - port: 80
+      targetPort: 8080

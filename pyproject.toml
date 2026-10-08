@@ -1,0 +1,23 @@
+[project]
+name = "dfms"
+version = "1.0.0"
+description = "Secure Drone Fleet Management System"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.3",
+    "pytest-cov==5.0.0",
+    "bandit==1.7.9",
+    "pip-audit==2.7.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/command_service_v0.py"]

@@ -1,0 +1,11 @@
+.git
+.github
+tests
+fuzz
+k8s
+.env
+*.pem
+*.key
+__pycache__
+.pytest_cache
+.venv
