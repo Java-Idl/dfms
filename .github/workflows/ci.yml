@@ -74,8 +74,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push (tagged by commit SHA)
         run: |
-          docker build -t ghcr.io/${{ github.repository }}/dfms:${{ github.sha }} .
-          docker push ghcr.io/${{ github.repository }}/dfms:${{ github.sha }}
+          IMAGE_NAME=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          docker build -t ${IMAGE_NAME}:${{ github.sha }} .
+          docker push ${IMAGE_NAME}:${{ github.sha }}
       - uses: actions/upload-artifact@v4
         with:
           name: k8s-manifests
