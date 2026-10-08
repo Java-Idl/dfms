@@ -1,0 +1,14 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "DFMS intentional lab demonstration files and placeholders"
+paths = [
+    '''app/command_service_v0\.py''',
+    '''\.env\.example''',
+    '''README\.md'''
+]
+regexes = [
+    '''dfms-secret-123''',
+    '''tok-planner-1'''
+]

@@ -52,7 +52,7 @@ docker build -t dfms:1.0.0 .
 docker run -d --name dfms --rm -p 8080:8080 \
   --read-only --cap-drop ALL --security-opt no-new-privileges \
   --memory 256m --cpus 0.5 \
-  -e DFMS_SIGNING_KEY="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" \
+  -e DFMS_SIGNING_KEY="$(openssl rand -hex 32)" \
   -e DFMS_SEED=1 \
   -e DFMS_DEMO_TOKENS='{"tok-planner-1":{"id":"u1","role":"planner","fleets":["F1"]}}' \
   dfms:1.0.0
@@ -72,7 +72,7 @@ curl -s -X POST http://localhost:8080/v1/commands \
 ```bash
 kubectl apply -f k8s/00-namespace.yaml
 kubectl -n dfms create secret generic dfms-secrets \
-  --from-literal=signing-key="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" \
+  --from-literal=signing-key="$(openssl rand -hex 32)" \
   --from-literal=demo-tokens='{"tok-planner-1":{"id":"u1","role":"planner","fleets":["F1"]}}'
 kubectl apply -f k8s/10-deployment.yaml -f k8s/20-service.yaml -f k8s/30-networkpolicy.yaml
 ```

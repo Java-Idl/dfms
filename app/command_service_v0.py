@@ -2,7 +2,7 @@
 import hashlib
 import os
 
-SECRET = "dfms-secret-123"                                   # (1) hard-coded secret (V-03 / B105)
+SECRET = "dfms-secret-123"                                   # gitleaks:allow - (1) hard-coded secret (V-03 / B105)
 
 def send_command(db, user, drone_id, cmd, params):
     # (2) SQL built by string formatting (V-01 / B608)
