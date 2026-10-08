@@ -1,7 +1,7 @@
 """Simple mutation fuzzer for the input boundary (drone_id + waypoint validators)."""
 import math
 import pathlib
-import random
+import secrets
 import string
 import sys
 
@@ -10,7 +10,6 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from app import command_service as cs
 
-random.seed(1337)                       # reproducible
 ITERATIONS = 200_000
 SEEDS = ["DRN-ABC123", "DRN-ABC123\n", "'; DROP TABLE drones;--", "$(reboot)", "`id`",
          "%s%s%n", "A" * 5000, "\x00", "\u202e", "1e999", "nan", "-0", "../../etc/passwd"]
@@ -19,24 +18,24 @@ ALPHABET = string.printable + "\x00\u202e\u00e9\u0661"
 
 def mutate(s: str) -> str:
     s = list(s) or ["A"]
-    for _ in range(random.randint(1, 4)):
-        op = random.choice(("ins", "del", "flip", "dup"))
-        i = random.randrange(len(s))
+    for _ in range(1 + secrets.randbelow(4)):
+        op = secrets.choice(("ins", "del", "flip", "dup"))
+        i = secrets.randbelow(len(s))
         if op == "ins":
-            s.insert(i, random.choice(ALPHABET))
+            s.insert(i, secrets.choice(ALPHABET))
         elif op == "del" and len(s) > 1:
             del s[i]
         elif op == "flip":
-            s[i] = random.choice(ALPHABET)
+            s[i] = secrets.choice(ALPHABET)
         else:
-            s[i:i] = s[i:i + random.randint(1, 5)]
+            s[i:i] = s[i:i + 1 + secrets.randbelow(5)]
     return "".join(s)
 
 
 def main() -> int:
     failures, accepted_ids = [], 0
     for _ in range(ITERATIONS):
-        cand = mutate(random.choice(SEEDS))
+        cand = mutate(secrets.choice(SEEDS))
         # --- drone_id boundary ---
         try:
             out = cs.validate_drone_id(cand)
@@ -49,7 +48,7 @@ def main() -> int:
         except Exception as e:                       # any other exception = crash
             failures.append(("drone_id crashed", repr(cand), type(e).__name__))
         # --- waypoint boundary ---
-        a, b, c = (mutate(random.choice(SEEDS)) for _ in range(3))
+        a, b, c = (mutate(secrets.choice(SEEDS)) for _ in range(3))
         try:
             lat, lon, alt = cs.validate_waypoint(a, b, c)
             if not (math.isfinite(lat) and -90 <= lat <= 90 and -180 <= lon <= 180 and 0 <= alt <= cs.MAX_ALT_M):

@@ -22,8 +22,8 @@
 
   <div class="nav-right">
     <div class="identity-row">
-      <span>Operator:</span>
-      <select id="userSelect">
+      <label for="userSelect">Operator:</label>
+      <select id="userSelect" aria-label="Active Operator Identity">
         <option value="tok-planner-1">Sarah Chen (Flight Planner)</option>
         <option value="tok-operator-1" selected>Alex Mercer (Operator · Fleet Alpha)</option>
         <option value="tok-operator-2">Priya Sharma (Operator · Fleet Beta)</option>
@@ -89,7 +89,8 @@
             </div>
             <div style="display:flex;align-items:center;gap:8px;">
               <div class="drone-select-row">
-                <select id="droneSelector">
+                <label for="droneSelector" class="sr-only">Target Drone</label>
+                <select id="droneSelector" aria-label="Select Target Drone">
                   <option value="DRN-ABC123">DRN-ABC123 (Fleet Alpha)</option>
                   <option value="DRN-XYZ789">DRN-XYZ789 (Fleet Beta)</option>
                 </select>
@@ -291,15 +292,15 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;align-items:end;">
           <div style="display:flex;gap:12px;">
             <div class="form-row" style="flex:1;">
-              <label class="form-label">Assign to Drone</label>
-              <select class="form-select" id="planDrone">
+              <label class="form-label" for="planDrone">Assign to Drone</label>
+              <select class="form-select" id="planDrone" aria-label="Assign to Drone">
                 <option value="DRN-ABC123">DRN-ABC123 (Fleet Alpha)</option>
                 <option value="DRN-XYZ789">DRN-XYZ789 (Fleet Beta)</option>
               </select>
             </div>
             <div class="form-row" style="flex:1;">
-              <label class="form-label">Mission Designation</label>
-              <input class="form-input" id="planMissionName" value="Perimeter Surveillance Patrol 104">
+              <label class="form-label" for="planMissionName">Mission Designation</label>
+              <input class="form-input" id="planMissionName" aria-label="Mission Designation" value="Perimeter Surveillance Patrol 104">
             </div>
           </div>
           <div style="display:flex;gap:8px;">
@@ -325,26 +326,26 @@
           <div class="card-body">
             <form id="fleetForm" style="display:flex;flex-direction:column;gap:10px;">
               <div class="form-row">
-                <label class="form-label">Fleet Code (e.g. F3 or GAMMA)</label>
-                <input class="form-input" id="fleetCode" placeholder="F3" required>
+                <label class="form-label" for="fleetCode">Fleet Code (e.g. F3 or GAMMA)</label>
+                <input class="form-input" id="fleetCode" aria-label="Fleet Code" placeholder="F3" required>
               </div>
               <div class="form-row">
-                <label class="form-label">Squadron Designation</label>
-                <input class="form-input" id="fleetName" placeholder="Fleet Gamma (Search &amp; Rescue)" required>
+                <label class="form-label" for="fleetName">Squadron Designation</label>
+                <input class="form-input" id="fleetName" aria-label="Squadron Designation" placeholder="Fleet Gamma (Search &amp; Rescue)" required>
               </div>
               <div class="form-grid-2">
                 <div class="form-row">
-                  <label class="form-label">Base Latitude</label>
-                  <input class="form-input" type="number" step="0.0001" id="fleetLat" value="10.9080" required>
+                  <label class="form-label" for="fleetLat">Base Latitude</label>
+                  <input class="form-input" type="number" step="0.0001" id="fleetLat" aria-label="Base Latitude" value="10.9080" required>
                 </div>
                 <div class="form-row">
-                  <label class="form-label">Base Longitude</label>
-                  <input class="form-input" type="number" step="0.0001" id="fleetLon" value="76.9050" required>
+                  <label class="form-label" for="fleetLon">Base Longitude</label>
+                  <input class="form-input" type="number" step="0.0001" id="fleetLon" aria-label="Base Longitude" value="76.9050" required>
                 </div>
               </div>
               <div class="form-row">
-                <label class="form-label">Geofence Radius (meters)</label>
-                <input class="form-input" type="number" id="fleetRadius" value="850">
+                <label class="form-label" for="fleetRadius">Geofence Radius (meters)</label>
+                <input class="form-input" type="number" id="fleetRadius" aria-label="Geofence Radius in meters" value="850">
               </div>
               <button type="submit" class="btn btn-default" id="btnCreateFleet" style="margin-top:4px;">Establish Fleet Squadron</button>
             </form>
@@ -360,23 +361,23 @@
           <div class="card-body">
             <form id="regForm" style="display:flex;flex-direction:column;gap:10px;">
               <div class="form-row">
-                <label class="form-label">Drone Identifier</label>
-                <input class="form-input" id="regId" placeholder="DRN-K9P2W1" required>
+                <label class="form-label" for="regId">Drone Identifier</label>
+                <input class="form-input" id="regId" aria-label="Drone Identifier" placeholder="DRN-K9P2W1" required>
               </div>
               <div class="form-row">
-                <label class="form-label">Assigned Fleet</label>
-                <select class="form-select" id="regFleet">
+                <label class="form-label" for="regFleet">Assigned Fleet</label>
+                <select class="form-select" id="regFleet" aria-label="Assigned Fleet">
                   <option value="F1">Fleet Alpha</option>
                   <option value="F2">Fleet Beta</option>
                 </select>
               </div>
               <div class="form-row">
-                <label class="form-label">Hardware Model</label>
-                <input class="form-input" id="regModel" value="AeroGuard Quad-V4">
+                <label class="form-label" for="regModel">Hardware Model</label>
+                <input class="form-input" id="regModel" aria-label="Hardware Model" value="AeroGuard Quad-V4">
               </div>
               <div class="form-row">
-                <label class="form-label">Client Certificate SHA-256 Fingerprint</label>
-                <input class="form-input" id="regCert" placeholder="AA:BB:CC:DD:..." required>
+                <label class="form-label" for="regCert">Client Certificate SHA-256 Fingerprint</label>
+                <input class="form-input" id="regCert" aria-label="Client Certificate SHA-256 Fingerprint" placeholder="AA:BB:CC:DD:..." required>
               </div>
               <button type="submit" class="btn btn-primary" id="btnEnrollDrone" style="margin-top:4px;">Enroll Drone in Fleet</button>
             </form>

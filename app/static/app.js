@@ -161,8 +161,8 @@ function initMap() {
 
   // Map Click Interaction (Appends Waypoints in Planner mode or sets target)
   state.map.on('click', e => {
-    const lat = parseFloat(e.latlng.lat.toFixed(5));
-    const lon = parseFloat(e.latlng.lng.toFixed(5));
+    const lat = Number.parseFloat(e.latlng.lat.toFixed(5));
+    const lon = Number.parseFloat(e.latlng.lng.toFixed(5));
 
     if (state.activeTab === 'planner') {
       addWaypointToPlannedRoute(lat, lon, 50, 12, 'SURVEILLANCE');
@@ -490,19 +490,19 @@ function renderRouteTable() {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><span class="wp-num-badge">${index + 1}</span></td>
-      <td><input class="form-input" style="padding:3px 6px;font-size:11px;" type="number" step="0.0001" value="${wp.lat.toFixed(5)}" onchange="updateWpCoord(${index}, 'lat', this.value)"></td>
-      <td><input class="form-input" style="padding:3px 6px;font-size:11px;" type="number" step="0.0001" value="${wp.lon.toFixed(5)}" onchange="updateWpCoord(${index}, 'lon', this.value)"></td>
-      <td><input class="form-input" style="padding:3px 6px;font-size:11px;width:60px;" type="number" value="${wp.alt}" onchange="updateWpCoord(${index}, 'alt', this.value)"></td>
-      <td><input class="form-input" style="padding:3px 6px;font-size:11px;width:55px;" type="number" value="${wp.speed}" onchange="updateWpCoord(${index}, 'speed', this.value)"></td>
+      <td><input class="form-input" aria-label="Waypoint ${index + 1} Latitude" style="padding:3px 6px;font-size:11px;" type="number" step="0.0001" value="${wp.lat.toFixed(5)}" onchange="updateWpCoord(${index}, 'lat', this.value)"></td>
+      <td><input class="form-input" aria-label="Waypoint ${index + 1} Longitude" style="padding:3px 6px;font-size:11px;" type="number" step="0.0001" value="${wp.lon.toFixed(5)}" onchange="updateWpCoord(${index}, 'lon', this.value)"></td>
+      <td><input class="form-input" aria-label="Waypoint ${index + 1} Altitude" style="padding:3px 6px;font-size:11px;width:60px;" type="number" value="${wp.alt}" onchange="updateWpCoord(${index}, 'alt', this.value)"></td>
+      <td><input class="form-input" aria-label="Waypoint ${index + 1} Speed" style="padding:3px 6px;font-size:11px;width:55px;" type="number" value="${wp.speed}" onchange="updateWpCoord(${index}, 'speed', this.value)"></td>
       <td>
-        <select class="form-select" style="padding:3px 6px;font-size:11px;" onchange="updateWpCoord(${index}, 'action', this.value)">
+        <select class="form-select" aria-label="Waypoint ${index + 1} Directive" style="padding:3px 6px;font-size:11px;" onchange="updateWpCoord(${index}, 'action', this.value)">
           <option value="TRANSIT" ${wp.action === 'TRANSIT' ? 'selected' : ''}>Transit</option>
           <option value="SURVEILLANCE" ${wp.action === 'SURVEILLANCE' ? 'selected' : ''}>Surveillance</option>
           <option value="LOITER" ${wp.action === 'LOITER' ? 'selected' : ''}>Loiter (30s)</option>
           <option value="PHOTO_RECON" ${wp.action === 'PHOTO_RECON' ? 'selected' : ''}>Photo Recon</option>
         </select>
       </td>
-      <td><button class="btn-icon-del" onclick="deleteWaypoint(${index})">✕</button></td>
+      <td><button class="btn-icon-del" aria-label="Delete Waypoint ${index + 1}" onclick="deleteWaypoint(${index})">✕</button></td>
     `;
     tbody.appendChild(tr);
   });
@@ -512,7 +512,7 @@ function renderRouteTable() {
 
 window.updateWpCoord = (index, field, val) => {
   if (state.plannedRoute[index]) {
-    state.plannedRoute[index][field] = field === 'action' ? val : parseFloat(val);
+    state.plannedRoute[index][field] = field === 'action' ? val : Number.parseFloat(val);
     updateMapVisuals();
     recalculateRouteMetrics();
   }
@@ -739,9 +739,9 @@ function handleCreateFleet(e) {
 
   const code   = document.getElementById('fleetCode').value.trim().toUpperCase();
   const name   = document.getElementById('fleetName').value.trim();
-  const lat    = parseFloat(document.getElementById('fleetLat').value);
-  const lon    = parseFloat(document.getElementById('fleetLon').value);
-  const radius = parseInt(document.getElementById('fleetRadius').value, 10) || 800;
+  const lat    = Number.parseFloat(document.getElementById('fleetLat').value);
+  const lon    = Number.parseFloat(document.getElementById('fleetLon').value);
+  const radius = Number.parseInt(document.getElementById('fleetRadius').value, 10) || 800;
 
   if (state.fleets[code]) {
     toast(`Fleet code ${code} already exists.`, 'err');
@@ -1398,8 +1398,14 @@ function hashString(str) {
   return h.toString(16).padStart(16, '0');
 }
 
+function secureRandom() {
+  const buf = new Uint32Array(1);
+  window.crypto.getRandomValues(buf);
+  return buf[0] / 4294967296;
+}
+
 function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
-function rnd(a, b) { return a + Math.random() * (b - a); }
+function rnd(a, b) { return a + secureRandom() * (b - a); }
 function formatTimestamp(ts) { return new Date(ts).toLocaleTimeString('en-GB'); }
 
 function compassDirection(deg) {

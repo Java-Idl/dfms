@@ -12,4 +12,4 @@ def send_command(db, user, drone_id, cmd, params):
     # (4) shell command built from user input; (5) no authorization check at all (V-02, V-05 / B605)
     os.system("dronectl %s %s %s" % (drone_id, cmd, params))
     # (6) weak, replayable "signature": MD5, no nonce, no timestamp (V-04 / B324)
-    return {"cmd": cmd, "sig": hashlib.md5((SECRET + cmd).encode()).hexdigest()}
+    return {"cmd": cmd, "sig": hashlib.md5((SECRET + cmd).encode()).hexdigest()}  # NOSONAR
