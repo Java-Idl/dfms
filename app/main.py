@@ -27,6 +27,18 @@ def _init_db() -> sqlite3.Connection:
     return db
 
 
+STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "static"))
+MIME_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".ico": "image/x-icon",
+}
+
+
 def _load_tokens() -> dict:
     raw = os.environ.get("DFMS_DEMO_TOKENS", "{}")
     tokens = {}
@@ -45,6 +57,7 @@ def _load_tokens() -> dict:
             "tok-operator-1": {"id": "u2", "role": "operator", "fleets": ["F1"]},
             "tok-operator-2": {"id": "u3", "role": "operator", "fleets": ["F2"]},
             "tok-admin": {"id": "admin", "role": "admin", "fleets": ["F1", "F2"]},
+            "tok-auditor": {"id": "u4", "role": "auditor", "fleets": []},
         }
     return tokens
 
@@ -77,9 +90,34 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _serve_file(self, file_path: str, content_type: str):
+        try:
+            with open(file_path, "rb") as f:
+                content = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(content)
+        except OSError:
+            self._send(404, {"error": "file not found"})
+
     def do_GET(self):
         if self.path == "/healthz":
             return self._send(200, {"status": "ok"})
+        if self.path in ("/", "/index.html"):
+            index_path = os.path.join(STATIC_DIR, "index.html")
+            return self._serve_file(index_path, "text/html; charset=utf-8")
+        if self.path.startswith("/static/"):
+            rel_path = self.path[len("/static/"):].split("?")[0].lstrip("/")
+            safe_path = os.path.abspath(os.path.join(STATIC_DIR, rel_path))
+            if safe_path.startswith(STATIC_DIR) and os.path.isfile(safe_path):
+                ext = os.path.splitext(safe_path)[1].lower()
+                mime = MIME_TYPES.get(ext, "application/octet-stream")
+                return self._serve_file(safe_path, mime)
+            return self._send(404, {"error": "static file not found"})
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
@@ -115,4 +153,4 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     load_signing_key()                         # fail closed at startup if key missing
-    ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()  # nosec: B104
+    ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()  # nosec B104

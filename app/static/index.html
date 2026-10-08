@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DFMS — Secure Drone Fleet Management System</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2300f0ff'><path d='M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5'/></svg>">
+</head>
+<body>
+  <!-- Top Navigation -->
+  <header class="top-nav">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      </div>
+      <div>
+        <div class="brand-title">DFMS TACTICAL COMMAND</div>
+        <div style="font-size: 0.7rem; color: var(--text-dim); font-family: var(--font-mono);">SECURE FLEET C2 PLATFORM</div>
+      </div>
+      <span class="brand-badge">HMAC-SHA256 &bull; mTLS</span>
+    </div>
+
+    <div class="nav-controls">
+      <div class="role-selector-wrap">
+        <span class="role-label">Active Identity:</span>
+        <select id="userRoleSelect" class="role-select">
+          <option value="tok-planner-1">Mission Planner (u1 - F1)</option>
+          <option value="tok-operator-1" selected>Operator (u2 - F1)</option>
+          <option value="tok-operator-2">Operator (u3 - F2)</option>
+          <option value="tok-admin">Administrator (admin - ALL)</option>
+          <option value="tok-auditor">Auditor / Safety (u4 - AUDIT)</option>
+        </select>
+      </div>
+
+      <div class="system-status">
+        <span class="status-dot"></span>
+        <span id="c2LinkStatus">C2 LINK: SECURE (mTLS)</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <nav class="tabs-bar">
+    <button class="tab-btn active" data-tab="mission-control">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+      Mission Control (S2)
+    </button>
+    <button class="tab-btn" data-tab="flight-planner">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
+      Flight Planner (S3)
+    </button>
+    <button class="tab-btn" data-tab="fleet-registry">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
+      Fleet Registry (S4)
+    </button>
+    <button class="tab-btn" data-tab="reports-audit">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14H7v-2h5v2zm5-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+      Reports & Audit (S5)
+    </button>
+    <button class="tab-btn" data-tab="security-lab">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+      Security Lab (7 Challenges)
+    </button>
+  </nav>
+
+  <!-- Main Container -->
+  <main class="main-content">
+
+    <!-- Anomaly Flashing Banner -->
+    <div id="anomalyBanner" class="anomaly-banner">
+      <div class="anomaly-content">
+        <svg class="anomaly-icon" viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+        <div class="anomaly-text">
+          <h4 id="anomalyTitle">CRITICAL SECURITY ALERT: GPS / GNSS SPOOFING DETECTED</h4>
+          <p id="anomalyDesc">Location plausibility engine detected impossible kinematic jump (>60 m/s). Autonomous Return-to-Home (RTH) failsafe triggered.</p>
+        </div>
+      </div>
+      <div>
+        <button id="btnDismissAlert" class="btn btn-danger" style="padding: 0.4rem 0.85rem; font-size: 0.75rem;">ACKNOWLEDGE & RESET</button>
+      </div>
+    </div>
+
+    <!-- TAB 1: MISSION CONTROL -->
+    <section id="tab-mission-control" class="tab-panel active">
+      <div class="dashboard-grid">
+        <!-- Tactical Radar and Map Area -->
+        <div class="hud-card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+              TACTICAL AIRSPACE RADAR (LIVE GNSS & GEOFENCE)
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <span id="droneBadgeStatus" class="badge badge-mission">IN_MISSION</span>
+              <span class="badge" style="background: rgba(0, 240, 255, 0.1); color: var(--accent-cyan);">MAX 120m AGL</span>
+            </div>
+          </div>
+
+          <div class="radar-container">
+            <canvas id="tacticalCanvas"></canvas>
+            <div class="radar-overlay-controls">
+              <div class="radar-stat-box" id="radarCoordBox">LAT: 10.9027 | LON: 76.9006</div>
+              <div class="radar-stat-box" id="radarGeofenceBox">GEOFENCE: ARMED (GF-01)</div>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: var(--text-dim); font-family: var(--font-mono);">
+            <span>RADAR RANGE: 1.5 KM RADIUS</span>
+            <span>CYBER LINK: mTLS X.509 PINNED</span>
+            <span id="telemetryUpdateTs">LAST UPDATE: JUST NOW</span>
+          </div>
+        </div>
+
+        <!-- Telemetry Gauges and Emergency Actions -->
+        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+          <!-- Telemetry Gauges Card -->
+          <div class="hud-card">
+            <div class="card-header">
+              <div class="card-title">
+                <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+                FLIGHT TELEMETRY
+              </div>
+              <select id="droneSelector" class="form-input" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
+                <option value="DRN-ABC123">DRN-ABC123 (Fleet F1)</option>
+                <option value="DRN-XYZ789">DRN-XYZ789 (Fleet F2)</option>
+              </select>
+            </div>
+
+            <div class="telemetry-grid">
+              <div class="gauge-box">
+                <div class="gauge-label">
+                  <span>ALTITUDE</span>
+                  <span id="altLimitLabel" style="color: var(--accent-cyan);">MAX 120m</span>
+                </div>
+                <div class="gauge-val" id="telemetryAlt">52.4 <small>m</small></div>
+                <div class="gauge-bar-wrap">
+                  <div id="altBar" class="gauge-bar-fill" style="width: 43.6%;"></div>
+                </div>
+              </div>
+
+              <div class="gauge-box">
+                <div class="gauge-label">
+                  <span>GROUND SPEED</span>
+                  <span>MAX 60m/s</span>
+                </div>
+                <div class="gauge-val" id="telemetrySpeed">9.2 <small>m/s</small></div>
+                <div class="gauge-bar-wrap">
+                  <div id="speedBar" class="gauge-bar-fill" style="width: 15.3%;"></div>
+                </div>
+              </div>
+
+              <div class="gauge-box">
+                <div class="gauge-label">
+                  <span>BATTERY</span>
+                  <span id="batPctLabel" style="color: var(--accent-emerald);">NORMAL</span>
+                </div>
+                <div class="gauge-val" id="telemetryBattery">78 <small>%</small></div>
+                <div class="gauge-bar-wrap">
+                  <div id="batteryBar" class="gauge-bar-fill" style="width: 78%; background: var(--accent-emerald);"></div>
+                </div>
+              </div>
+
+              <div class="gauge-box">
+                <div class="gauge-label">
+                  <span>HEADING / SATS</span>
+                  <span>14 GNSS</span>
+                </div>
+                <div class="gauge-val" id="telemetryHeading">042° <small>NE</small></div>
+                <div class="gauge-bar-wrap">
+                  <div class="gauge-bar-fill" style="width: 85%;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Emergency Action Console -->
+          <div class="hud-card">
+            <div class="card-header">
+              <div class="card-title">
+                <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                PRIORITY COMMAND CONSOLE
+              </div>
+              <span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171;">NFR-04 &le; 3s LATENCY</span>
+            </div>
+
+            <p style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.4;">
+              Commands are cryptographically signed with HMAC-SHA256, strictly validated against allowlists, and checked for fleet authorization.
+            </p>
+
+            <div class="action-cluster">
+              <button id="btnCancelMission" class="btn btn-warning">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg>
+                CANCEL MISSION (SAFE ABORT)
+              </button>
+
+              <button id="btnRTH" class="btn btn-primary">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+                RETURN TO HOME (RTH)
+              </button>
+
+              <button id="btnLandNow" class="btn btn-danger">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+                EMERGENCY LAND NOW
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: FLIGHT PLANNER -->
+    <section id="tab-flight-planner" class="tab-panel" style="display: none;">
+      <div class="hud-card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
+            MISSION SPECIFICATION & FLIGHT PATH DESIGNER (FR-02, FR-03, SR-12)
+          </div>
+          <span class="badge" style="background: rgba(56, 189, 248, 0.15); color: var(--accent-blue);">STRICT ALLOWLIST VALIDATION</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+          <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <div class="form-group">
+              <label class="form-label">Mission Identifier</label>
+              <input type="text" id="planMissionId" class="form-input" value="MSN-2026-081" readonly>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Target Drone</label>
+              <select id="planDroneId" class="form-input">
+                <option value="DRN-ABC123">DRN-ABC123 (Fleet F1)</option>
+                <option value="DRN-XYZ789">DRN-XYZ789 (Fleet F2)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Mandatory Geofence</label>
+              <select id="planGeofence" class="form-input">
+                <option value="GF-01">GF-01: Coimbatore Tech Corridor (Max 120m)</option>
+                <option value="GF-02">GF-02: Amrita Campus Polygon (Max 100m)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Calculated SHA-256 Plan Hash (SR-12 Integrity)</label>
+              <input type="text" id="planHashDisplay" class="form-input" style="color: var(--accent-cyan); font-size: 0.75rem;" value="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" readonly>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <h4 style="font-size: 0.85rem; color: var(--text-main);">WAYPOINTS (ALTITUDE MUST BE &le; 120.0 METERS AGL)</h4>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem;">
+              <div class="form-group">
+                <label class="form-label">Latitude (°)</label>
+                <input type="number" step="0.0001" id="wpLat" class="form-input" value="10.9027">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Longitude (°)</label>
+                <input type="number" step="0.0001" id="wpLon" class="form-input" value="76.9006">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Altitude (0-120m)</label>
+                <input type="number" step="0.1" id="wpAlt" class="form-input" value="45.0">
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
+              <button id="btnValidatePlan" class="btn btn-outline" style="flex: 1;">
+                VALIDATE FLIGHT PATH
+              </button>
+              <button id="btnAssignMission" class="btn btn-primary" style="flex: 1;">
+                ASSIGN & SIGN MISSION (GOTO)
+              </button>
+            </div>
+
+            <div id="validationResultBox" style="font-size: 0.8rem; font-family: var(--font-mono); padding: 0.75rem; border-radius: 6px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); display: none;">
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: FLEET REGISTRY -->
+    <section id="tab-fleet-registry" class="tab-panel" style="display: none;">
+      <div class="hud-card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
+            DRONE FLEET REGISTRY (ADMINISTRATOR - FR-01, SR-03)
+          </div>
+          <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald);">mTLS CERTIFICATE REGISTRY</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 1.5rem;">
+          <form id="formRegisterDrone" style="display: flex; flex-direction: column; gap: 0.85rem;">
+            <div class="form-group">
+              <label class="form-label">Drone ID (Regex: DRN-[A-Z0-9]{6})</label>
+              <input type="text" id="regDroneId" class="form-input" placeholder="e.g. DRN-K9P2W1" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Fleet Scope</label>
+              <select id="regFleetId" class="form-input">
+                <option value="F1">Fleet F1 (Alpha Squad)</option>
+                <option value="F2">Fleet F2 (Beta Patrol)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Model Designation</label>
+              <input type="text" id="regModel" class="form-input" value="AeroGuard Quad-V4" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">X.509 Device Cert Fingerprint (SHA-256)</label>
+              <input type="text" id="regCert" class="form-input" value="9A:F1:4C:E2:01:8B:77:3A:D4:55:10:9C:23" required>
+            </div>
+            <button type="submit" class="btn btn-primary" style="margin-top: 0.5rem;">
+              REGISTER DRONE TO FLEET
+            </button>
+          </form>
+
+          <div class="hud-table-wrap">
+            <table class="hud-table">
+              <thead>
+                <tr>
+                  <th>DRONE ID</th>
+                  <th>FLEET</th>
+                  <th>MODEL</th>
+                  <th>CERT FINGERPRINT</th>
+                  <th>STATUS</th>
+                </tr>
+              </thead>
+              <tbody id="droneRosterBody">
+                <tr>
+                  <td style="color: var(--accent-cyan);">DRN-ABC123</td>
+                  <td>F1</td>
+                  <td>AeroGuard Quad-V4</td>
+                  <td>9A:F1:4C:E2:01:8B...</td>
+                  <td><span class="badge badge-mission">IN_MISSION</span></td>
+                </tr>
+                <tr>
+                  <td style="color: var(--accent-cyan);">DRN-XYZ789</td>
+                  <td>F2</td>
+                  <td>AeroGuard Quad-V4</td>
+                  <td>F4:11:09:A3:88:CD...</td>
+                  <td><span class="badge badge-idle">IDLE</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: REPORTS & AUDIT -->
+    <section id="tab-reports-audit" class="tab-panel" style="display: none;">
+      <div class="hud-card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14H7v-2h5v2zm5-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+            TAMPER-EVIDENT CRYPTOGRAPHIC AUDIT LOG (SR-08, FR-11)
+          </div>
+          <span class="badge" style="background: rgba(0, 240, 255, 0.15); color: var(--accent-cyan);">HASH CHAIN: entry_hash = SHA256(prev_hash || event)</span>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <p style="font-size: 0.8rem; color: var(--text-muted);">
+            Append-only WORM security log with cryptographic hash binding. Altering any row breaks the entire forward chain.
+          </p>
+          <button id="btnDownloadReport" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.4rem 0.85rem;">
+            DOWNLOAD MISSION REPORT (FR-09)
+          </button>
+        </div>
+
+        <div class="hud-table-wrap" style="max-height: 400px; overflow-y: auto;">
+          <table class="hud-table">
+            <thead>
+              <tr>
+                <th>TIMESTAMP</th>
+                <th>ACTOR</th>
+                <th>EVENT TYPE</th>
+                <th>OBJECT</th>
+                <th>ENTRY HASH (SHA-256)</th>
+                <th>PREV HASH</th>
+              </tr>
+            </thead>
+            <tbody id="auditTableBody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: SECURITY LAB -->
+    <section id="tab-security-lab" class="tab-panel" style="display: none;">
+      <div class="hud-card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+            SECURITY LAB: INTERACTIVE VALIDATION OF ALL 7 CHALLENGES
+          </div>
+          <span class="badge" style="background: rgba(244, 63, 94, 0.15); color: var(--accent-rose);">DEFENSE VERIFICATION MATRIX</span>
+        </div>
+
+        <div class="sec-lab-panel">
+          <!-- Challenge 1 -->
+          <div class="attack-sim-card">
+            <h4>1. GPS / Location Spoofing</h4>
+            <p>Inject sudden coordinate leap or high velocity (>60 m/s) to trigger the kinematic plausibility filter & alert banner.</p>
+            <button id="btnSimSpoof" class="btn btn-danger" style="font-size: 0.75rem;">INJECT GPS SPOOF (300 m/s)</button>
+          </div>
+
+          <!-- Challenge 2 -->
+          <div class="attack-sim-card">
+            <h4>2. Unauthorized Mission Mod</h4>
+            <p>Simulate modifying coordinates in transit without updating the plan hash or HMAC signature.</p>
+            <button id="btnSimMod" class="btn btn-warning" style="font-size: 0.75rem;">SIMULATE TRANSIT TAMPER</button>
+          </div>
+
+          <!-- Challenge 3 -->
+          <div class="attack-sim-card">
+            <h4>3. Command / SQL Injection</h4>
+            <p>Inject shell command (<code>; rm -rf /</code>) and SQL injection into Drone ID boundary.</p>
+            <button id="btnSimInjection" class="btn btn-warning" style="font-size: 0.75rem;">SEND INJECTION PAYLOAD</button>
+          </div>
+
+          <!-- Challenge 4 -->
+          <div class="attack-sim-card">
+            <h4>4. Operator Impersonation</h4>
+            <p>Test RBAC fleet boundary (e.g. Operator in Fleet F1 trying to control Fleet F2 drone).</p>
+            <button id="btnSimImpersonate" class="btn btn-outline" style="font-size: 0.75rem;">TEST CROSS-FLEET (IDOR)</button>
+          </div>
+
+          <!-- Challenge 5 -->
+          <div class="attack-sim-card">
+            <h4>5. Drone Hijacking / Replay</h4>
+            <p>Re-send an already captured command nonce to verify drone-side replay cache rejection.</p>
+            <button id="btnSimReplay" class="btn btn-warning" style="font-size: 0.75rem;">EXECUTE REPLAY ATTACK</button>
+          </div>
+
+          <!-- Challenge 6 -->
+          <div class="attack-sim-card">
+            <h4>6. Telemetry Confidentiality</h4>
+            <p>Verify mTLS mutual authentication and encrypted telemetry channels.</p>
+            <button id="btnInspectTls" class="btn btn-outline" style="font-size: 0.75rem;">INSPECT mTLS CERTS</button>
+          </div>
+
+          <!-- Challenge 7 -->
+          <div class="attack-sim-card">
+            <h4>7. Availability / Rate Limiting</h4>
+            <p>Simulate high-frequency burst to test gateway throttling with cancel priority lane.</p>
+            <button id="btnSimFlood" class="btn btn-outline" style="font-size: 0.75rem;">TEST FLOOD THRESHOLD</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Modal Dialog -->
+  <div id="commandModal" class="modal-backdrop">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="modalTitle" class="modal-title">COMMAND CONFIRMATION</h3>
+        <button id="btnModalClose" class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody">
+        <p>Confirm execution of priority command?</p>
+      </div>
+      <div class="modal-footer">
+        <button id="btnModalCancel" class="btn btn-outline">CANCEL</button>
+        <button id="btnModalConfirm" class="btn btn-primary">CRYPTOGRAPHICALLY SIGN & DISPATCH</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
