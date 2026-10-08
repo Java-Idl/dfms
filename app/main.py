@@ -153,4 +153,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     load_signing_key()                         # fail closed at startup if key missing
-    ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()  # nosec B104
+    port = int(os.environ.get("PORT", "8080"))
+    log.info("Starting DFMS server on port %d", port)
+    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()  # nosec B104

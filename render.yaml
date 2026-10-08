@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: dfms-command-service
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: DFMS_SIGNING_KEY
+        generateValue: true
+      - key: DFMS_SEED
+        value: "1"
+      - key: DFMS_DEMO_TOKENS
+        sync: false
