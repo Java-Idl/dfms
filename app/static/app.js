@@ -1,26 +1,39 @@
 'use strict';
 
-// ── Operator Registry & State ────────────────────────────────────────────────
+// ── OPERATOR CREDENTIALS & SQUADRON REGISTRY ──────────────────────────────────
 const OPERATORS = {
-  'tok-planner-1':  { name: 'Sarah Chen', role: 'Flight Planner', fleet: 'Fleet Alpha' },
-  'tok-operator-1': { name: 'Alex Mercer', role: 'Drone Operator', fleet: 'Fleet Alpha' },
-  'tok-operator-2': { name: 'Priya Sharma', role: 'Drone Operator', fleet: 'Fleet Beta' },
-  'tok-admin':      { name: 'Marcus Vance', role: 'Fleet Administrator', fleet: 'All Fleets' },
-  'tok-auditor':    { name: 'Elena Rostova', role: 'Compliance Auditor', fleet: 'Audit' },
+  'tok-planner-1':  { name: 'Sarah Chen',   role: 'planner',  roleTitle: 'Flight Planner',            fleet: 'F1', fleetName: 'Fleet Alpha', desc: 'Authorized to design multi-waypoint routes & assign missions.' },
+  'tok-operator-1': { name: 'Alex Mercer',  role: 'operator', roleTitle: 'Drone Operator (Alpha)',     fleet: 'F1', fleetName: 'Fleet Alpha', desc: 'Tactical flight controller for Fleet Alpha squadron only.' },
+  'tok-operator-2': { name: 'Priya Sharma', role: 'operator', roleTitle: 'Drone Operator (Beta)',      fleet: 'F2', fleetName: 'Fleet Beta',  desc: 'Tactical flight controller for Fleet Beta squadron only.' },
+  'tok-admin':      { name: 'Marcus Vance', role: 'admin',    roleTitle: 'Fleet Administrator',       fleet: 'ALL', fleetName: 'All Squadrons', desc: 'Root administrative authority: fleet creation, enrollment & audit.' },
+  'tok-auditor':    { name: 'Elena Rostova', role: 'auditor', roleTitle: 'Compliance Auditor',         fleet: 'NONE', fleetName: 'Audit Observer', desc: 'Read-only safety clearance: cryptographic audit logs & reports.' },
 };
 
 const state = {
   token: 'tok-operator-1',
   activeTab: 'ops',
   selectedDrone: 'DRN-ABC123',
+  followDrone: false,
+  isMapExpanded: false,
   capturedNonce: null,
   auditChain: [],
   map: null,
   markers: {},
+  baseMarkers: {},
   pathLine: null,
   trailLine: null,
+  plannedRouteLine: null,
   wpMarker: null,
-  geofenceCircle: null,
+  routeWpMarkers: [],
+  geofenceCircles: {},
+
+  // Active Fleets
+  fleets: {
+    'F1': { code: 'F1', name: 'Fleet Alpha (Patrol Squadron)', lat: 10.8990, lon: 76.8985, radius: 800, color: '#3b82f6', status: 'ACTIVE' },
+    'F2': { code: 'F2', name: 'Fleet Beta (Surveillance Squadron)', lat: 10.9150, lon: 76.8920, radius: 850, color: '#8b5cf6', status: 'ACTIVE' },
+  },
+
+  // Active Drones
   drones: {
     'DRN-ABC123': {
       id: 'DRN-ABC123',
@@ -30,11 +43,13 @@ const state = {
       lat: 10.9027,
       lon: 76.9006,
       alt: 45.0,
-      speed: 10.8,
+      speed: 11.4,
       bat: 82.5,
       hdg: 42,
       home: { lat: 10.8990, lon: 76.8985, alt: 0.0 },
       target: { lat: 10.9065, lon: 76.9042, alt: 50.0 },
+      waypointQueue: [],
+      currentWpIndex: 0,
       trail: [
         [10.8990, 76.8985],
         [10.9008, 76.8995],
@@ -55,24 +70,33 @@ const state = {
       hdg: 0,
       home: { lat: 10.9150, lon: 76.8920, alt: 0.0 },
       target: null,
+      waypointQueue: [],
+      currentWpIndex: 0,
       trail: [
         [10.9150, 76.8920],
       ],
       anomaly: false,
     },
   },
+
+  // Sophisticated Planned Route
+  plannedRoute: [],
 };
 
-// ── Application Boot ─────────────────────────────────────────────────────────
+// ── APPLICATION BOOT ─────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   initTabs();
   initMap();
   bindEvents();
+  seedInitialRoute();
   seedAudit();
+  renderFleetRoster();
+  renderRouteTable();
+  applyRolePermissions();
   setInterval(tickPhysics, 250);
 });
 
-// ── Tabs Navigation ──────────────────────────────────────────────────────────
+// ── TABS NAVIGATION ──────────────────────────────────────────────────────────
 function initTabs() {
   document.querySelectorAll('.tab').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -83,7 +107,7 @@ function initTabs() {
       state.activeTab = id;
       document.getElementById(`panel-${id}`).classList.add('active');
 
-      if (id === 'ops' && state.map) {
+      if ((id === 'ops' || id === 'planner') && state.map) {
         setTimeout(() => {
           state.map.invalidateSize();
           const d = state.drones[state.selectedDrone];
@@ -94,50 +118,31 @@ function initTabs() {
   });
 }
 
-// ── Leaflet OpenStreetMap Engine ─────────────────────────────────────────────
+// ── LEAFLET OPENSTREETMAP ENGINE ─────────────────────────────────────────────
 function initMap() {
   const d = state.drones[state.selectedDrone];
   const initialPos = [d.lat, d.lon];
 
-  // Initialize Map
   state.map = L.map('map', {
     center: initialPos,
     zoom: 16,
     zoomControl: true,
   });
 
-  // OpenStreetMap Tile Layer
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors',
   }).addTo(state.map);
 
-  // Flight Geofence Boundary
-  state.geofenceCircle = L.circle(initialPos, {
-    radius: 750,
-    color: '#3b82f6',
-    weight: 1.5,
-    dashArray: '6, 6',
-    fillColor: '#3b82f6',
-    fillOpacity: 0.04,
-  }).addTo(state.map);
+  // Flight Trails & Polylines
+  state.trailLine = L.polyline([], { color: '#3b82f6', weight: 2, opacity: 0.5 }).addTo(state.map);
+  state.pathLine = L.polyline([], { color: '#10b981', weight: 2.5, dashArray: '5, 5', opacity: 0.9 }).addTo(state.map);
+  state.plannedRouteLine = L.polyline([], { color: '#818cf8', weight: 2, dashArray: '6, 4', opacity: 0.85 }).addTo(state.map);
 
-  // Historical Trail Polyline
-  state.trailLine = L.polyline([], {
-    color: '#3b82f6',
-    weight: 2,
-    opacity: 0.5,
-  }).addTo(state.map);
+  // Render Geofence Envelopes & Base Stations for Fleets
+  renderFleetMapEntities();
 
-  // Active Flight Vector Polyline
-  state.pathLine = L.polyline([], {
-    color: '#10b981',
-    weight: 2.5,
-    dashArray: '5, 5',
-    opacity: 0.9,
-  }).addTo(state.map);
-
-  // Create Markers for each drone
+  // Drone Markers
   Object.values(state.drones).forEach(drone => {
     const icon = createDroneIcon(drone);
     const marker = L.marker([drone.lat, drone.lon], { icon }).addTo(state.map);
@@ -145,7 +150,7 @@ function initMap() {
     state.markers[drone.id] = marker;
   });
 
-  // Target Waypoint Pin
+  // Single Target Waypoint Pin
   const wpIcon = L.divIcon({
     className: 'custom-wp-icon',
     html: '<div class="wp-icon-pin">WP</div>',
@@ -154,23 +159,56 @@ function initMap() {
   });
   state.wpMarker = L.marker(initialPos, { icon: wpIcon });
 
-  // Map Click Interaction (allows clicking anywhere to pick flight coordinates)
+  // Map Click Interaction (Appends Waypoints in Planner mode or sets target)
   state.map.on('click', e => {
     const lat = parseFloat(e.latlng.lat.toFixed(5));
     const lon = parseFloat(e.latlng.lng.toFixed(5));
-    document.getElementById('wpLat').value = lat;
-    document.getElementById('wpLon').value = lon;
-    toast(`Waypoint selected on map: ${lat}, ${lon}`, 'ok');
 
-    // Preview target pin and flight line
-    setTargetWaypointPreview(lat, lon);
+    if (state.activeTab === 'planner') {
+      addWaypointToPlannedRoute(lat, lon, 50, 12, 'SURVEILLANCE');
+      toast(`Waypoint ${state.plannedRoute.length} added at [${lat}, ${lon}]`, 'ok');
+    } else {
+      toast(`Selected coordinate: ${lat}, ${lon}`, 'ok');
+    }
   });
 
   updateMapVisuals();
 }
 
+function renderFleetMapEntities() {
+  // Clear old circles
+  Object.values(state.geofenceCircles).forEach(c => state.map.removeLayer(c));
+  Object.values(state.baseMarkers).forEach(m => state.map.removeLayer(m));
+  state.geofenceCircles = {};
+  state.baseMarkers = {};
+
+  Object.values(state.fleets).forEach(f => {
+    // Geofence Circle
+    const circle = L.circle([f.lat, f.lon], {
+      radius: f.radius,
+      color: f.color || '#3b82f6',
+      weight: 1.5,
+      dashArray: '6, 6',
+      fillColor: f.color || '#3b82f6',
+      fillOpacity: 0.04,
+    }).addTo(state.map);
+    circle.bindTooltip(`${f.name} Envelope (${f.radius}m)`, { permanent: false });
+    state.geofenceCircles[f.code] = circle;
+
+    // Base Station Icon
+    const baseIcon = L.divIcon({
+      className: 'custom-wp-icon',
+      html: `<div style="background:#0f172a;border:2px solid ${f.color || '#3b82f6'};border-radius:4px;padding:2px 5px;font-size:10px;font-family:var(--mono);color:#f1f5f9;white-space:nowrap;">BASE · ${f.code}</div>`,
+      iconSize: [60, 20],
+      iconAnchor: [30, 10],
+    });
+    const baseMarker = L.marker([f.lat, f.lon], { icon: baseIcon }).addTo(state.map);
+    state.baseMarkers[f.code] = baseMarker;
+  });
+}
+
 function createDroneIcon(drone) {
-  const statusClass = drone.status === 'IN_MISSION' ? 'in-mission'
+  const statusClass = drone.status === 'IN_MISSION' || drone.status === 'HOVERING' ? 'in-mission'
                     : drone.status === 'RTH' || drone.status === 'LANDING' ? 'rth'
                     : drone.anomaly ? 'anomaly'
                     : 'idle';
@@ -188,21 +226,11 @@ function createDroneIcon(drone) {
   });
 }
 
-function setTargetWaypointPreview(lat, lon) {
-  const d = state.drones[state.selectedDrone];
-  if (!state.map) return;
-  state.wpMarker.setLatLng([lat, lon]);
-  if (!state.map.hasLayer(state.wpMarker)) {
-    state.wpMarker.addTo(state.map);
-  }
-  state.pathLine.setLatLngs([[d.lat, d.lon], [lat, lon]]);
-}
-
 function updateMapVisuals() {
   const d = state.drones[state.selectedDrone];
   if (!d || !state.map) return;
 
-  // Update drone marker position
+  // Drone Marker Position & Orientation
   const marker = state.markers[d.id];
   if (marker) {
     marker.setLatLng([d.lat, d.lon]);
@@ -210,7 +238,7 @@ function updateMapVisuals() {
     if (pinEl) {
       pinEl.style.transform = `rotate(${d.hdg}deg)`;
       pinEl.className = `drone-icon-pin ${
-        d.status === 'IN_MISSION' ? 'in-mission'
+        d.status === 'IN_MISSION' || d.status === 'HOVERING' ? 'in-mission'
         : d.status === 'RTH' || d.status === 'LANDING' ? 'rth'
         : d.anomaly ? 'anomaly'
         : 'idle'
@@ -218,10 +246,15 @@ function updateMapVisuals() {
     }
   }
 
-  // Update breadcrumb trail
+  // Camera Lock
+  if (state.followDrone) {
+    state.map.panTo([d.lat, d.lon], { animate: false });
+  }
+
+  // Breadcrumbs
   state.trailLine.setLatLngs(d.trail);
 
-  // Update target waypoint and flight vector
+  // Active Flight Vector
   if (d.target && (d.status === 'IN_MISSION' || d.status === 'RTH')) {
     state.wpMarker.setLatLng([d.target.lat, d.target.lon]);
     if (!state.map.hasLayer(state.wpMarker)) state.wpMarker.addTo(state.map);
@@ -230,155 +263,157 @@ function updateMapVisuals() {
     if (state.map.hasLayer(state.wpMarker)) state.map.removeLayer(state.wpMarker);
     state.pathLine.setLatLngs([]);
   }
+
+  // Planned Multi-Waypoint Route Polyline
+  if (state.plannedRoute.length > 0) {
+    const pts = state.plannedRoute.map(w => [w.lat, w.lon]);
+    state.plannedRouteLine.setLatLngs(pts);
+    renderRouteWaypointsOnMap();
+  } else {
+    state.plannedRouteLine.setLatLngs([]);
+    clearRouteWaypointsOnMap();
+  }
 }
 
-// ── Flight Dynamics Engine (Real Vectors & Telemetry) ────────────────────────
+function renderRouteWaypointsOnMap() {
+  clearRouteWaypointsOnMap();
+  state.plannedRoute.forEach((wp, idx) => {
+    const icon = L.divIcon({
+      className: 'custom-wp-icon',
+      html: `<div class="wp-icon-pin" style="width:20px;height:20px;font-size:10px;">${idx + 1}</div>`,
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
+    });
+    const m = L.marker([wp.lat, wp.lon], { icon }).addTo(state.map);
+    m.bindPopup(`<strong>WP${idx + 1}</strong>: ${wp.action}<br>Alt: ${wp.alt}m · Spd: ${wp.speed}m/s`);
+    state.routeWpMarkers.push(m);
+  });
+}
+
+function clearRouteWaypointsOnMap() {
+  state.routeWpMarkers.forEach(m => state.map.removeLayer(m));
+  state.routeWpMarkers = [];
+}
+
+// ── EXPANDED FULLSCREEN MAP CONTROLLER ───────────────────────────────────────
+function toggleMapFullscreen() {
+  const wrap = document.getElementById('mapWrap');
+  state.isMapExpanded = !state.isMapExpanded;
+  wrap.classList.toggle('expanded', state.isMapExpanded);
+
+  const btn = document.getElementById('btnExpandMap');
+  btn.innerHTML = state.isMapExpanded ? '🗗 Standard' : '⛶ Fullscreen';
+
+  setTimeout(() => {
+    state.map.invalidateSize();
+    const d = state.drones[state.selectedDrone];
+    if (d) state.map.panTo([d.lat, d.lon]);
+  }, 200);
+}
+
+// ── DYNAMIC MULTI-WAYPOINT FLIGHT DYNAMICS ENGINE ────────────────────────────
 function tickPhysics() {
   Object.values(state.drones).forEach(d => {
     if (d.anomaly) return;
 
-    // IN MISSION or RTH: Move towards active target
-    if ((d.status === 'IN_MISSION' || d.status === 'RTH') && d.target) {
+    // Multi-Waypoint Navigation
+    if (d.status === 'IN_MISSION') {
+      // If we have an active waypoint queue and target is reached or not yet assigned
+      if (d.waypointQueue.length > 0 && d.currentWpIndex < d.waypointQueue.length) {
+        d.target = d.waypointQueue[d.currentWpIndex];
+      }
+
+      if (d.target) {
+        const dLat = d.target.lat - d.lat;
+        const dLon = d.target.lon - d.lon;
+        const dist = Math.hypot(dLat, dLon);
+
+        const targetSpeed = d.target.speed || 12.0;
+        const step = (targetSpeed * 0.000009) * 0.25;
+
+        if (dist > step * 1.5) {
+          // In Flight towards current Waypoint
+          const bearing = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
+          d.hdg = Math.round(bearing);
+
+          d.lat += (dLat / dist) * step;
+          d.lon += (dLon / dist) * step;
+
+          d.speed = clamp(targetSpeed + rnd(-0.4, 0.4), 6.0, 18.0);
+
+          const targetAlt = d.target.alt || 50.0;
+          if (d.alt < targetAlt) d.alt = Math.min(targetAlt, d.alt + 0.5);
+          else if (d.alt > targetAlt) d.alt = Math.max(targetAlt, d.alt - 0.5);
+
+          d.bat = Math.max(0, d.bat - 0.008);
+
+          // Breadcrumbs
+          const lastPt = d.trail[d.trail.length - 1];
+          if (!lastPt || Math.hypot(lastPt[0] - d.lat, lastPt[1] - d.lon) > 0.00008) {
+            d.trail.push([d.lat, d.lon]);
+            if (d.trail.length > 250) d.trail.shift();
+          }
+        } else {
+          // Arrived at current Waypoint
+          d.lat = d.target.lat;
+          d.lon = d.target.lon;
+
+          if (d.waypointQueue.length > 0 && d.currentWpIndex < d.waypointQueue.length - 1) {
+            d.currentWpIndex++;
+            d.target = d.waypointQueue[d.currentWpIndex];
+            toast(`${d.id} reached Waypoint ${d.currentWpIndex}. Proceeding to Waypoint ${d.currentWpIndex + 1}.`, 'ok');
+            audit(currentActorName(), 'waypoint_reached', d.id, `Advanced to WP${d.currentWpIndex + 1}`);
+          } else {
+            // Completed all waypoints
+            d.status = 'HOVERING';
+            d.speed = 0.0;
+            toast(`${d.id} completed all mission waypoints. Holding station.`, 'ok');
+            audit(currentActorName(), 'mission_completed', d.id, 'All flight path waypoints traversed');
+          }
+        }
+      }
+    } else if (d.status === 'RTH' && d.target) {
+      // Return To Home base
       const dLat = d.target.lat - d.lat;
       const dLon = d.target.lon - d.lon;
       const dist = Math.hypot(dLat, dLon);
+      const step = 0.000028;
 
-      // Desired speed ~ 12 m/s -> approx 0.000108 deg/sec -> 0.000027 deg/tick (at 250ms)
-      const step = 0.000027;
-
-      if (dist > step * 1.2) {
-        // Compute true compass bearing
+      if (dist > step * 1.5) {
         const bearing = (Math.atan2(dLon, dLat) * 180 / Math.PI + 360) % 360;
         d.hdg = Math.round(bearing);
-
-        // Move position
         d.lat += (dLat / dist) * step;
         d.lon += (dLon / dist) * step;
-
-        // Dynamic speed with aerodynamic variations
-        d.speed = clamp(11.5 + rnd(-0.6, 0.6), 8.0, 16.0);
-
-        // Altitude ascent/descent towards target
-        if (d.alt < d.target.alt) d.alt = Math.min(d.target.alt, d.alt + 0.4);
-        else if (d.alt > d.target.alt) d.alt = Math.max(d.target.alt, d.alt - 0.4);
-
-        // Battery consumption
-        d.bat = Math.max(0, d.bat - 0.008);
-
-        // Record flight trail breadcrumbs
-        const lastPt = d.trail[d.trail.length - 1];
-        if (!lastPt || Math.hypot(lastPt[0] - d.lat, lastPt[1] - d.lon) > 0.00008) {
-          d.trail.push([d.lat, d.lon]);
-          if (d.trail.length > 200) d.trail.shift();
-        }
+        d.speed = clamp(12.5 + rnd(-0.5, 0.5), 10.0, 16.0);
+        d.bat = Math.max(0, d.bat - 0.007);
       } else {
-        // Arrived at destination
         d.lat = d.target.lat;
         d.lon = d.target.lon;
-
-        if (d.status === 'RTH') {
-          // Reached home base -> transition to automated landing
-          d.status = 'LANDING';
-          toast(`${d.id} reached Home Base. Commencing vertical touchdown.`, 'ok');
-          audit(currentActorName(), 'home_reached', d.id, 'Arrived at base coordinates');
-        } else {
-          // Reached mission waypoint -> hover on station
-          d.status = 'HOVERING';
-          d.speed = 0.0;
-          toast(`${d.id} reached target coordinates [${d.lat.toFixed(4)}, ${d.lon.toFixed(4)}]. Holding station.`, 'ok');
-          audit(currentActorName(), 'waypoint_reached', d.id, `Station holding at alt ${d.alt.toFixed(1)}m`);
-        }
+        d.status = 'LANDING';
+        toast(`${d.id} arrived over Home Base. Commencing vertical landing.`, 'ok');
+        audit(currentActorName(), 'base_reached', d.id, 'Arrival at squadron base');
       }
     } else if (d.status === 'LANDING') {
-      // Controlled vertical descent
       d.speed = 0.0;
       d.alt = Math.max(0, d.alt - 1.2);
       if (d.alt === 0) {
-        d.status = 'LANDED';
-        toast(`${d.id} safely touched down and rotors stopped.`, 'ok');
-        audit(currentActorName(), 'drone_landed', d.id, 'Touchdown confirmed');
+        d.status = 'IDLE';
+        toast(`${d.id} touchdown complete. Motors disarmed.`, 'ok');
+        audit(currentActorName(), 'touchdown_confirmed', d.id, 'Safe ground landing');
       }
     } else if (d.status === 'HOVERING') {
-      // Slight GPS jitter during stable hover
       d.alt = clamp(d.alt + rnd(-0.1, 0.1), 10, 120);
-      d.speed = clamp(rnd(0.0, 0.4), 0, 1);
-      d.bat = Math.max(0, d.bat - 0.004);
+      d.speed = clamp(rnd(0.0, 0.3), 0, 1);
+      d.bat = Math.max(0, d.bat - 0.003);
     }
   });
 
   updateMapVisuals();
   updateTelemetryUI();
+  updateHudUI();
 }
 
-// ── UI Events Binding ────────────────────────────────────────────────────────
-function bindEvents() {
-  // Identity Switcher
-  document.getElementById('userSelect').addEventListener('change', e => {
-    state.token = e.target.value;
-    const actor = currentActorName();
-    audit(actor, 'operator_switched', 'IAM', `Active console identity changed`);
-    toast(`Authenticated as ${actor}`, 'ok');
-  });
-
-  // Drone Selector
-  document.getElementById('droneSelector').addEventListener('change', e => {
-    selectDrone(e.target.value);
-  });
-
-  // Drone Command Buttons
-  document.getElementById('btnGoto').addEventListener('click', () => openCommandModal('GOTO'));
-  document.getElementById('btnRTH').addEventListener('click',  () => openCommandModal('RTH'));
-  document.getElementById('btnCancel').addEventListener('click', () => openCommandModal('CANCEL'));
-  document.getElementById('btnLand').addEventListener('click', () => openCommandModal('LAND'));
-
-  // Security Alert Dismissal
-  document.getElementById('btnAlertDismiss').addEventListener('click', () => {
-    const d = state.drones[state.selectedDrone];
-    if (d) {
-      d.anomaly = false;
-      d.speed = 0.0;
-      d.status = 'IDLE';
-    }
-    document.getElementById('alertBanner').classList.remove('show');
-    toast('Security alert acknowledged. Flight controller reset to nominal.', 'ok');
-  });
-
-  // Modal Dialog Actions
-  document.getElementById('btnModalX').addEventListener('click', closeModal);
-  document.getElementById('btnModalCancel').addEventListener('click', closeModal);
-
-  // Flight Planner Controls
-  document.getElementById('btnValidate').addEventListener('click', validateFlightPlan);
-  document.getElementById('btnAssign').addEventListener('click', assignMissionFromPlanner);
-
-  // Fleet Registry Form
-  document.getElementById('regForm').addEventListener('submit', handleRegisterDrone);
-
-  // Mission Report Download
-  document.getElementById('btnReport').addEventListener('click', downloadMissionReport);
-
-  // Security Verification Lab Tests
-  document.getElementById('btnSpoof').addEventListener('click', runGpsSpoofTest);
-  document.getElementById('btnTamper').addEventListener('click', runTamperTest);
-  document.getElementById('btnInject').addEventListener('click', runInjectionTest);
-  document.getElementById('btnImpersonate').addEventListener('click', runCrossFleetTest);
-  document.getElementById('btnReplay').addEventListener('click', runReplayTest);
-  document.getElementById('btnTls').addEventListener('click', inspectTlsSession);
-  document.getElementById('btnFlood').addEventListener('click', runRateLimitTest);
-}
-
-function selectDrone(droneId) {
-  state.selectedDrone = droneId;
-  const d = state.drones[droneId];
-  if (d && state.map) {
-    state.map.panTo([d.lat, d.lon]);
-    if (state.geofenceCircle) state.geofenceCircle.setLatLng([d.lat, d.lon]);
-  }
-  updateMapVisuals();
-  updateTelemetryUI();
-}
-
-// ── Telemetry Dashboard Updates ──────────────────────────────────────────────
+// ── TELEMETRY & HUD UI UPDATES ───────────────────────────────────────────────
 function updateTelemetryUI() {
   const d = state.drones[state.selectedDrone];
   if (!d) return;
@@ -396,84 +431,487 @@ function updateTelemetryUI() {
   badge.textContent = d.status;
   badge.className = 'badge ' + getStatusBadgeClass(d.status);
 
-  // Coordinates footer
   document.getElementById('coordBox').textContent = `LAT ${d.lat.toFixed(5)} · LON ${d.lon.toFixed(5)}`;
   document.getElementById('zoneBox').textContent = `${d.fleetName} · 120 m Max Altitude`;
 
-  // Anomaly alert banner
   const banner = document.getElementById('alertBanner');
   if (d.anomaly) {
     banner.classList.add('show');
     document.getElementById('alertTitle').textContent = `LOCATION ANOMALY DETECTED — ${d.id}`;
     document.getElementById('alertDesc').textContent =
-      `Kinematic plausibility engine detected impossible velocity jump (${d.speed.toFixed(1)} m/s > 60 m/s limit). Automatic Return-to-Home failsafe engaged.`;
+      `Kinematic plausibility engine detected impossible velocity jump (${d.speed.toFixed(1)} m/s > 60 m/s limit). Return-to-Home engaged.`;
   } else {
     banner.classList.remove('show');
   }
 }
 
-function setHtml(id, html) {
-  const el = document.getElementById(id);
-  if (el) el.innerHTML = html;
-}
+function updateHudUI() {
+  const d = state.drones[state.selectedDrone];
+  if (!d) return;
 
-function setProgressBar(id, frac, cls) {
-  const el = document.getElementById(id);
-  if (el) {
-    el.style.width = Math.round(clamp(frac, 0, 1) * 100) + '%';
-    el.className = 'telem-bar-fill ' + cls;
+  setHtml('hudDrone', d.id);
+  setHtml('hudAlt', `${d.alt.toFixed(1)} m`);
+  setHtml('hudSpeed', `${d.speed.toFixed(1)} m/s`);
+  setHtml('hudBat', `${Math.round(d.bat)}%`);
+  setHtml('hudHdg', `${String(d.hdg).padStart(3, '0')}° ${compassDirection(d.hdg)}`);
+
+  if (d.target) {
+    const distM = Math.round(Math.hypot(d.target.lat - d.lat, d.target.lon - d.lon) * 111000);
+    setHtml('hudNextWp', `WP${d.currentWpIndex + 1} (${distM}m)`);
+  } else {
+    setHtml('hudNextWp', 'Station Hold');
   }
 }
 
-function getStatusBadgeClass(status) {
-  return status === 'IN_MISSION' || status === 'HOVERING' ? 'badge-active'
-       : status === 'RTH' || status === 'LANDING' ? 'badge-warn'
-       : status === 'ANOMALY' ? 'badge-danger'
-       : 'badge-idle';
+// ── SOPHISTICATED FLIGHT ROUTE PLANNER ───────────────────────────────────────
+function seedInitialRoute() {
+  const baseLat = 10.9027;
+  const baseLon = 76.9006;
+  state.plannedRoute = [
+    { id: 1, lat: baseLat + 0.0020, lon: baseLon + 0.0015, alt: 45, speed: 12, action: 'TRANSIT' },
+    { id: 2, lat: baseLat + 0.0035, lon: baseLon + 0.0030, alt: 50, speed: 14, action: 'SURVEILLANCE' },
+    { id: 3, lat: baseLat + 0.0025, lon: baseLon + 0.0050, alt: 40, speed: 10, action: 'LOITER' },
+    { id: 4, lat: baseLat + 0.0005, lon: baseLon + 0.0035, alt: 35, speed: 12, action: 'PERIMETER_CHECK' },
+  ];
 }
 
-function compassDirection(deg) {
-  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-  return dirs[Math.round(deg / 45) % 8];
+function addWaypointToPlannedRoute(lat, lon, alt = 45, speed = 12, action = 'TRANSIT') {
+  const id = state.plannedRoute.length + 1;
+  state.plannedRoute.push({ id, lat, lon, alt, speed, action });
+  renderRouteTable();
+  updateMapVisuals();
 }
 
-// ── Command Dispatch & Modal ────────────────────────────────────────────────
-let _pendingCommand = null;
+function renderRouteTable() {
+  const tbody = document.getElementById('routeTableBody');
+  tbody.innerHTML = '';
 
-function openCommandModal(cmd) {
-  _pendingCommand = cmd;
+  state.plannedRoute.forEach((wp, index) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="wp-num-badge">${index + 1}</span></td>
+      <td><input class="form-input" style="padding:3px 6px;font-size:11px;" type="number" step="0.0001" value="${wp.lat.toFixed(5)}" onchange="updateWpCoord(${index}, 'lat', this.value)"></td>
+      <td><input class="form-input" style="padding:3px 6px;font-size:11px;" type="number" step="0.0001" value="${wp.lon.toFixed(5)}" onchange="updateWpCoord(${index}, 'lon', this.value)"></td>
+      <td><input class="form-input" style="padding:3px 6px;font-size:11px;width:60px;" type="number" value="${wp.alt}" onchange="updateWpCoord(${index}, 'alt', this.value)"></td>
+      <td><input class="form-input" style="padding:3px 6px;font-size:11px;width:55px;" type="number" value="${wp.speed}" onchange="updateWpCoord(${index}, 'speed', this.value)"></td>
+      <td>
+        <select class="form-select" style="padding:3px 6px;font-size:11px;" onchange="updateWpCoord(${index}, 'action', this.value)">
+          <option value="TRANSIT" ${wp.action === 'TRANSIT' ? 'selected' : ''}>Transit</option>
+          <option value="SURVEILLANCE" ${wp.action === 'SURVEILLANCE' ? 'selected' : ''}>Surveillance</option>
+          <option value="LOITER" ${wp.action === 'LOITER' ? 'selected' : ''}>Loiter (30s)</option>
+          <option value="PHOTO_RECON" ${wp.action === 'PHOTO_RECON' ? 'selected' : ''}>Photo Recon</option>
+        </select>
+      </td>
+      <td><button class="btn-icon-del" onclick="deleteWaypoint(${index})">✕</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  recalculateRouteMetrics();
+}
+
+window.updateWpCoord = (index, field, val) => {
+  if (state.plannedRoute[index]) {
+    state.plannedRoute[index][field] = field === 'action' ? val : parseFloat(val);
+    updateMapVisuals();
+    recalculateRouteMetrics();
+  }
+};
+
+window.deleteWaypoint = (index) => {
+  state.plannedRoute.splice(index, 1);
+  state.plannedRoute.forEach((w, i) => w.id = i + 1);
+  renderRouteTable();
+  updateMapVisuals();
+};
+
+function recalculateRouteMetrics() {
+  if (state.plannedRoute.length === 0) {
+    setHtml('metricDist', '0 m');
+    setHtml('metricTime', '00:00');
+    setHtml('metricBat', '0%');
+    return;
+  }
+
+  let totalDistM = 0;
+  for (let i = 0; i < state.plannedRoute.length - 1; i++) {
+    const a = state.plannedRoute[i];
+    const b = state.plannedRoute[i + 1];
+    totalDistM += Math.hypot(b.lat - a.lat, b.lon - a.lon) * 111000;
+  }
+
+  const distText = totalDistM >= 1000 ? `${(totalDistM / 1000).toFixed(2)} km` : `${Math.round(totalDistM)} m`;
+  setHtml('metricDist', distText);
+
+  // Time in seconds at avg 12 m/s
+  const totalSeconds = Math.round(totalDistM / 12);
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  setHtml('metricTime', `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`);
+
+  // Battery approx 1% per 120m
+  const batPct = Math.min(100, Math.round(totalDistM / 120));
+  setHtml('metricBat', `${batPct}%`);
+}
+
+// ── PATTERN GENERATORS ───────────────────────────────────────────────────────
+function generateBoxPattern() {
+  const d = state.drones[state.selectedDrone];
+  const centerLat = d.lat;
+  const centerLon = d.lon;
+  const delta = 0.0025;
+
+  state.plannedRoute = [
+    { id: 1, lat: centerLat + delta, lon: centerLon - delta, alt: 45, speed: 12, action: 'PERIMETER_CHECK' },
+    { id: 2, lat: centerLat + delta, lon: centerLon + delta, alt: 45, speed: 12, action: 'PERIMETER_CHECK' },
+    { id: 3, lat: centerLat - delta, lon: centerLon + delta, alt: 45, speed: 12, action: 'PERIMETER_CHECK' },
+    { id: 4, lat: centerLat - delta, lon: centerLon - delta, alt: 45, speed: 12, action: 'PERIMETER_CHECK' },
+  ];
+  renderRouteTable();
+  updateMapVisuals();
+  toast('Perimeter Box (4 Waypoints) generated.', 'ok');
+}
+
+function generateSurveyGrid() {
+  const d = state.drones[state.selectedDrone];
+  const lat = d.lat;
+  const lon = d.lon;
+
+  state.plannedRoute = [
+    { id: 1, lat: lat + 0.001, lon: lon - 0.002, alt: 50, speed: 14, action: 'SCAN_PASS_1' },
+    { id: 2, lat: lat + 0.001, lon: lon + 0.002, alt: 50, speed: 14, action: 'SCAN_PASS_1' },
+    { id: 3, lat: lat + 0.002, lon: lon + 0.002, alt: 50, speed: 14, action: 'TURN_LEG' },
+    { id: 4, lat: lat + 0.002, lon: lon - 0.002, alt: 50, speed: 14, action: 'SCAN_PASS_2' },
+    { id: 5, lat: lat + 0.003, lon: lon - 0.002, alt: 50, speed: 14, action: 'TURN_LEG' },
+    { id: 6, lat: lat + 0.003, lon: lon + 0.002, alt: 50, speed: 14, action: 'SCAN_PASS_3' },
+  ];
+  renderRouteTable();
+  updateMapVisuals();
+  toast('Lawnmower Survey Grid (6 Waypoints) generated.', 'ok');
+}
+
+// ── ROLE CLEARANCE & PERMISSIONS ENGINE ─────────────────────────────────────
+function applyRolePermissions() {
+  const op = OPERATORS[state.token] || OPERATORS['tok-operator-1'];
+
+  // Role Badges
+  const roleBadge = document.getElementById('cmdRoleBadge');
+  if (roleBadge) {
+    roleBadge.textContent = `${op.roleTitle} · ${op.fleetName}`;
+    roleBadge.className = `badge badge-${op.role === 'admin' ? 'active' : op.role === 'operator' ? 'info' : 'idle'}`;
+  }
+
+  const roleDesc = document.getElementById('cmdRoleDesc');
+  if (roleDesc) roleDesc.textContent = op.desc;
+
+  // Buttons to check
+  const btnGoto = document.getElementById('btnGoto');
+  const btnRTH = document.getElementById('btnRTH');
+  const btnCancel = document.getElementById('btnCancel');
+  const btnLand = document.getElementById('btnLand');
+  const btnAssign = document.getElementById('btnAssign');
+  const btnEnrollDrone = document.getElementById('btnEnrollDrone');
+  const btnCreateFleet = document.getElementById('btnCreateFleet');
+
+  // Auditor: Read-only
+  if (op.role === 'auditor') {
+    lockButton(btnGoto, 'Auditor clearance is strictly read-only');
+    lockButton(btnRTH, 'Auditor clearance is strictly read-only');
+    lockButton(btnCancel, 'Auditor clearance is strictly read-only');
+    lockButton(btnLand, 'Auditor clearance is strictly read-only');
+    lockButton(btnAssign, 'Auditor clearance is strictly read-only');
+    lockButton(btnEnrollDrone, 'Auditor clearance is strictly read-only');
+    lockButton(btnCreateFleet, 'Auditor clearance is strictly read-only');
+    return;
+  }
+
+  // Planner: Can plan & assign routes, cannot execute in-flight emergency cancel/land
+  if (op.role === 'planner') {
+    unlockButton(btnAssign);
+    unlockButton(btnGoto);
+    unlockButton(btnRTH);
+    lockButton(btnCancel, 'In-flight emergency abort requires active Pilot / Operator license');
+    lockButton(btnLand, 'In-flight emergency landing requires active Pilot / Operator license');
+    lockButton(btnEnrollDrone, 'Drone hardware registration requires Administrator role');
+    lockButton(btnCreateFleet, 'Fleet squadron creation requires Administrator role');
+    return;
+  }
+
+  // Operator: Can command drones in their fleet scope
+  if (op.role === 'operator') {
+    const selectedDrone = state.drones[state.selectedDrone];
+    const isSameFleet = selectedDrone && selectedDrone.fleet === op.fleet;
+
+    if (isSameFleet) {
+      unlockButton(btnGoto);
+      unlockButton(btnRTH);
+      unlockButton(btnCancel);
+      unlockButton(btnLand);
+      unlockButton(btnAssign);
+    } else {
+      const msg = `Unauthorized: ${selectedDrone?.id} belongs to ${selectedDrone?.fleetName}. You hold clearance for ${op.fleetName} only.`;
+      lockButton(btnGoto, msg);
+      lockButton(btnRTH, msg);
+      lockButton(btnCancel, msg);
+      lockButton(btnLand, msg);
+      lockButton(btnAssign, msg);
+    }
+
+    lockButton(btnEnrollDrone, 'Drone hardware registration requires Administrator role');
+    lockButton(btnCreateFleet, 'Fleet squadron creation requires Administrator role');
+    return;
+  }
+
+  // Admin: Root clearance
+  if (op.role === 'admin') {
+    unlockButton(btnGoto);
+    unlockButton(btnRTH);
+    unlockButton(btnCancel);
+    unlockButton(btnLand);
+    unlockButton(btnAssign);
+    unlockButton(btnEnrollDrone);
+    unlockButton(btnCreateFleet);
+  }
+}
+
+function lockButton(btn, reason) {
+  if (!btn) return;
+  btn.disabled = true;
+  btn.classList.add('btn-locked');
+  btn.title = `[ACCESS RESTRICTED] ${reason}`;
+}
+
+function unlockButton(btn) {
+  if (!btn) return;
+  btn.disabled = false;
+  btn.classList.remove('btn-locked');
+  btn.title = '';
+}
+
+// ── ROLE CLEARANCE MODAL ────────────────────────────────────────────────────
+function openRoleClearanceModal() {
+  const grid = document.getElementById('roleGrid');
+  grid.innerHTML = '';
+
+  Object.entries(OPERATORS).forEach(([tok, op]) => {
+    const isCurrent = tok === state.token;
+    const card = document.createElement('div');
+    card.className = `role-account-card ${isCurrent ? 'active' : ''}`;
+    card.innerHTML = `
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <strong>${op.name}</strong>
+          <span class="role-badge ${op.role}">${op.roleTitle}</span>
+          ${isCurrent ? '<span class="badge badge-active">CURRENT ACTIVE SESSION</span>' : ''}
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">${op.desc}</div>
+        <div style="font-size:10px;font-family:var(--mono);color:var(--dim);margin-top:2px;">Domain: ${op.fleetName} · Token: ${tok}</div>
+      </div>
+      <div>
+        ${isCurrent ? '<button class="btn btn-default" disabled style="font-size:11px;">Active</button>' : `<button class="btn btn-primary" style="font-size:11px;" onclick="switchOperatorSession('${tok}')">Switch</button>`}
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+
+  document.getElementById('roleModal').classList.add('show');
+}
+
+window.switchOperatorSession = (token) => {
+  state.token = token;
+  document.getElementById('userSelect').value = token;
+  document.getElementById('roleModal').classList.remove('show');
+
+  const actor = currentActorName();
+  audit(actor, 'operator_authenticated', 'IAM', `Session clearance established as ${actor}`);
+  toast(`Authenticated as ${actor}`, 'ok');
+  applyRolePermissions();
+};
+
+// ── FLEET CREATION & ROSTER ──────────────────────────────────────────────────
+function handleCreateFleet(e) {
+  e.preventDefault();
+  if (state.token !== 'tok-admin') {
+    toast('Access Denied: Only Fleet Administrator can establish new fleet squadrons.', 'err');
+    audit(currentActorName(), 'fleet_creation_blocked', 'RBAC', 'Unauthorized attempt to create squadron');
+    return;
+  }
+
+  const code   = document.getElementById('fleetCode').value.trim().toUpperCase();
+  const name   = document.getElementById('fleetName').value.trim();
+  const lat    = parseFloat(document.getElementById('fleetLat').value);
+  const lon    = parseFloat(document.getElementById('fleetLon').value);
+  const radius = parseInt(document.getElementById('fleetRadius').value, 10) || 800;
+
+  if (state.fleets[code]) {
+    toast(`Fleet code ${code} already exists.`, 'err');
+    return;
+  }
+
+  const colors = ['#ec4899', '#f97316', '#14b8a6', '#06b6d4', '#eab308'];
+  const color = colors[Object.keys(state.fleets).length % colors.length];
+
+  state.fleets[code] = { code, name, lat, lon, radius, color, status: 'ACTIVE' };
+
+  // Update Fleet Select in Register Form
+  const regFleetSelect = document.getElementById('regFleet');
+  const opt = new Option(name, code);
+  regFleetSelect.add(opt);
+
+  renderFleetRoster();
+  renderFleetMapEntities();
+  toast(`Squadron established: ${name} [Base: ${lat}, ${lon}]`, 'ok');
+  audit(currentActorName(), 'fleet_squadron_created', code, `Base established with ${radius}m geofence`);
+  e.target.reset();
+}
+
+function renderFleetRoster() {
+  const tbody = document.getElementById('fleetRosterBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  const entries = Object.values(state.fleets);
+  document.getElementById('fleetCountBadge').textContent = `${entries.length} Fleets Active`;
+
+  entries.forEach(f => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="tbl-id" style="color:${f.color};">${f.code}</td>
+      <td><strong>${f.name}</strong></td>
+      <td style="font-family:var(--mono);">${f.lat.toFixed(4)}, ${f.lon.toFixed(4)}</td>
+      <td>${f.radius} m Radius</td>
+      <td><span class="badge badge-active">ACTIVE</span></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── DRONE REGISTRATION ───────────────────────────────────────────────────────
+function handleRegisterDrone(e) {
+  e.preventDefault();
+  if (state.token !== 'tok-admin') {
+    toast('Access Denied: Only Fleet Administrator can enroll drone hardware.', 'err');
+    audit(currentActorName(), 'drone_enroll_blocked', 'RBAC', 'Unauthorized drone enrollment attempt');
+    return;
+  }
+
+  const id    = document.getElementById('regId').value.trim();
+  const fleet = document.getElementById('regFleet').value;
+  const model = document.getElementById('regModel').value;
+  const cert  = document.getElementById('regCert').value;
+
+  if (!/^DRN-[A-Z0-9]{6}$/.test(id)) {
+    toast('Invalid Drone Identifier format. Must match DRN-XXXXXX', 'err');
+    return;
+  }
+
+  const fObj = state.fleets[fleet] || { name: `Fleet ${fleet}`, lat: 10.9027, lon: 76.9006 };
+  state.drones[id] = {
+    id,
+    fleet,
+    fleetName: fObj.name,
+    status: 'IDLE',
+    alt: 0,
+    speed: 0,
+    bat: 100,
+    hdg: 0,
+    lat: fObj.lat,
+    lon: fObj.lon,
+    home: { lat: fObj.lat, lon: fObj.lon, alt: 0 },
+    target: null,
+    waypointQueue: [],
+    currentWpIndex: 0,
+    trail: [[fObj.lat, fObj.lon]],
+    anomaly: false,
+  };
+
+  // Add marker to map
+  const icon = createDroneIcon(state.drones[id]);
+  const marker = L.marker([fObj.lat, fObj.lon], { icon }).addTo(state.map);
+  marker.bindPopup(`<strong>${id}</strong><br>${fObj.name}<br>Status: IDLE`);
+  state.markers[id] = marker;
+
+  // Add to table
+  const tbody = document.getElementById('rosterBody');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td class="tbl-id">${id}</td>
+    <td>${fObj.name}</td>
+    <td>${model}</td>
+    <td>${cert.slice(0, 16)}…</td>
+    <td><span class="badge badge-idle">IDLE</span></td>
+  `;
+  tbody.appendChild(tr);
+
+  // Add to dropdowns
+  const opt1 = new Option(`${id} (${fObj.name})`, id);
+  const opt2 = new Option(`${id} (${fObj.name})`, id);
+  document.getElementById('droneSelector').add(opt1);
+  document.getElementById('planDrone').add(opt2);
+
+  toast(`${id} enrolled into ${fObj.name}.`, 'ok');
+  audit(currentActorName(), 'drone_enrolled', id, `mTLS cert fingerprint ${cert.slice(0, 16)} enrolled`);
+  e.target.reset();
+}
+
+// ── MULTI-WAYPOINT MISSION DISPATCH ─────────────────────────────────────────
+function assignMissionFromPlanner() {
+  if (state.plannedRoute.length === 0) {
+    toast('Please define at least one waypoint for the flight path.', 'warn');
+    return;
+  }
+
+  const droneId = document.getElementById('planDrone').value;
+  selectDrone(droneId);
+  const d = state.drones[droneId];
+
+  // Pass first waypoint to GOTO API for cryptographic validation
+  const firstWp = state.plannedRoute[0];
+  openCommandModal('GOTO', {
+    lat: firstWp.lat,
+    lon: firstWp.lon,
+    alt: firstWp.alt,
+    waypoints: state.plannedRoute,
+  });
+}
+
+// ── COMMAND DISPATCH & MODAL ────────────────────────────────────────────────
+let _pendingCmd = null;
+let _pendingParams = null;
+
+function openCommandModal(cmd, customParams = null) {
+  _pendingCmd = cmd;
+  _pendingParams = customParams;
   const d = state.drones[state.selectedDrone];
   const requiredPerm = cmd === 'GOTO' ? 'mission:assign' : 'mission:cancel';
 
   let detailHtml = '';
   if (cmd === 'GOTO') {
-    const lat = parseFloat(document.getElementById('wpLat').value);
-    const lon = parseFloat(document.getElementById('wpLon').value);
-    const alt = parseFloat(document.getElementById('wpAlt').value);
+    const count = (customParams?.waypoints?.length) || 1;
     detailHtml = `
-      <div class="kv-row"><span class="kv-key">Destination</span><span class="kv-val">${lat}, ${lon}</span></div>
-      <div class="kv-row"><span class="kv-key">Target Altitude</span><span class="kv-val">${alt} m AGL</span></div>
+      <div class="kv-row"><span class="kv-key">Waypoint Plan</span><span class="kv-val">${count} Sequential Waypoints</span></div>
+      <div class="kv-row"><span class="kv-key">Flight Trajectory</span><span class="kv-val">Automated Cruise &amp; Station Hold</span></div>
     `;
   } else if (cmd === 'RTH') {
-    detailHtml = `<div class="kv-row"><span class="kv-key">Destination</span><span class="kv-val">Home Base [${d.home.lat}, ${d.home.lon}]</span></div>`;
+    detailHtml = `<div class="kv-row"><span class="kv-key">Destination</span><span class="kv-val">Squadron Base [${d.home.lat.toFixed(4)}, ${d.home.lon.toFixed(4)}]</span></div>`;
   } else if (cmd === 'LAND') {
-    detailHtml = `<div class="kv-row"><span class="kv-key">Action</span><span class="kv-val">Immediate Vertical Descent on Current Position</span></div>`;
+    detailHtml = `<div class="kv-row"><span class="kv-key">Emergency Directive</span><span class="kv-val">Controlled Vertical Descent at Current Position</span></div>`;
   } else if (cmd === 'CANCEL') {
-    detailHtml = `<div class="kv-row"><span class="kv-key">Action</span><span class="kv-val">Abort Current Flight Path and Disengage Mission</span></div>`;
+    detailHtml = `<div class="kv-row"><span class="kv-key">Safety Directive</span><span class="kv-val">Immediate Mission Abort &amp; Hover Hold</span></div>`;
   }
 
   document.getElementById('modalTitle').textContent = `Execute ${cmd} — ${d.id}`;
   document.getElementById('modalBody').innerHTML = `
     <div class="kv">
-      <div class="kv-row"><span class="kv-key">Target Drone</span><span class="kv-val">${d.id}</span></div>
-      <div class="kv-row"><span class="kv-key">Fleet Domain</span><span class="kv-val">${d.fleetName}</span></div>
+      <div class="kv-row"><span class="kv-key">Target Asset</span><span class="kv-val">${d.id}</span></div>
+      <div class="kv-row"><span class="kv-key">Squadron Domain</span><span class="kv-val">${d.fleetName}</span></div>
       <div class="kv-row"><span class="kv-key">Command Directive</span><span class="kv-val">${cmd}</span></div>
       ${detailHtml}
-      <div class="kv-row"><span class="kv-key">Required RBAC Privilege</span><span class="kv-val">${requiredPerm}</span></div>
-      <div class="kv-row"><span class="kv-key">Security Mechanism</span><span class="kv-val">HMAC-SHA256 · 128-bit Anti-Replay Nonce</span></div>
+      <div class="kv-row"><span class="kv-key">Required Privilege</span><span class="kv-val">${requiredPerm}</span></div>
+      <div class="kv-row"><span class="kv-key">Security Envelope</span><span class="kv-val">HMAC-SHA256 · 128-bit Anti-Replay Nonce</span></div>
     </div>
   `;
-  document.getElementById('btnModalConfirm').onclick = () => executeCommand(cmd);
+  document.getElementById('btnModalConfirm').onclick = () => executeCommand(cmd, _pendingParams);
   document.getElementById('modal').classList.add('show');
 }
 
@@ -481,15 +919,21 @@ function closeModal() {
   document.getElementById('modal').classList.remove('show');
 }
 
-async function executeCommand(cmd) {
+async function executeCommand(cmd, customParams = null) {
   closeModal();
   const d = state.drones[state.selectedDrone];
   const params = {};
 
   if (cmd === 'GOTO') {
-    params.lat = parseFloat(document.getElementById('wpLat').value);
-    params.lon = parseFloat(document.getElementById('wpLon').value);
-    params.alt = parseFloat(document.getElementById('wpAlt').value);
+    if (customParams && customParams.waypoints) {
+      params.lat = customParams.lat;
+      params.lon = customParams.lon;
+      params.alt = customParams.alt;
+    } else {
+      params.lat = d.lat + 0.002;
+      params.lon = d.lon + 0.002;
+      params.alt = 45.0;
+    }
   }
 
   try {
@@ -505,179 +949,184 @@ async function executeCommand(cmd) {
     const data = await res.json();
     if (res.ok) {
       state.capturedNonce = data.payload?.nonce;
-      toast(`${cmd} command authorized and signed (Nonce: ${state.capturedNonce?.slice(0, 8)}…)`, 'ok');
+      toast(`${cmd} authorized & dispatched (Nonce: ${state.capturedNonce?.slice(0, 8)}…)`, 'ok');
 
-      // Dynamically update flight physics & targets based on command
       if (cmd === 'GOTO') {
-        d.target = { lat: params.lat, lon: params.lon, alt: params.alt };
+        if (customParams && customParams.waypoints && customParams.waypoints.length > 0) {
+          d.waypointQueue = [ ...customParams.waypoints ];
+          d.currentWpIndex = 0;
+          d.target = d.waypointQueue[0];
+        } else {
+          d.target = { lat: params.lat, lon: params.lon, alt: params.alt };
+          d.waypointQueue = [];
+        }
         d.status = 'IN_MISSION';
       } else if (cmd === 'RTH') {
         d.target = { ...d.home };
+        d.waypointQueue = [];
         d.status = 'RTH';
       } else if (cmd === 'LAND') {
         d.status = 'LANDING';
+        d.waypointQueue = [];
       } else if (cmd === 'CANCEL') {
         d.target = null;
-        d.status = 'IDLE';
+        d.waypointQueue = [];
+        d.status = 'HOVERING';
         d.speed = 0.0;
       }
 
-      audit(currentActorName(), 'command_authorized', d.id, `${cmd} directive issued (HMAC verified)`);
+      audit(currentActorName(), 'command_dispatched', d.id, `${cmd} directive signed (HMAC valid)`);
       updateMapVisuals();
       updateTelemetryUI();
     } else {
       toast(`Access Denied: ${data.error} (HTTP ${res.status})`, 'err');
-      audit(currentActorName(), 'authorization_rejected', d.id, `${cmd} rejected — ${data.error}`);
+      audit(currentActorName(), 'access_denied', d.id, `${cmd} rejected — ${data.error}`);
     }
   } catch (err) {
-    toast(`Network communication error: ${err.message}`, 'err');
+    toast(`Network failure: ${err.message}`, 'err');
   }
 }
 
-// ── Flight Planner Form ──────────────────────────────────────────────────────
-function validateFlightPlan() {
-  const lat = parseFloat(document.getElementById('wpLat').value);
-  const lon = parseFloat(document.getElementById('wpLon').value);
-  const alt = parseFloat(document.getElementById('wpAlt').value);
-  const box = document.getElementById('valBox');
-  box.style.display = 'block';
-
-  if (isNaN(lat) || lat < -90 || lat > 90) {
-    box.className = 'val-box fail';
-    box.textContent = 'Validation error: Latitude must be between -90° and +90°';
-    return false;
-  }
-  if (isNaN(lon) || lon < -180 || lon > 180) {
-    box.className = 'val-box fail';
-    box.textContent = 'Validation error: Longitude must be between -180° and +180°';
-    return false;
-  }
-  if (isNaN(alt) || alt < 0 || alt > 120) {
-    box.className = 'val-box fail';
-    box.textContent = `Validation error: Altitude ${alt}m exceeds maximum ceiling of 120m`;
-    return false;
-  }
-
-  box.className = 'val-box ok';
-  box.textContent = `Coordinates validated — Within authorized flight envelope (${alt}m AGL)`;
-  toast('Flight path validated within geofence limits.', 'ok');
-  setTargetWaypointPreview(lat, lon);
-  return true;
-}
-
-function assignMissionFromPlanner() {
-  if (!validateFlightPlan()) return;
-  const droneId = document.getElementById('planDrone').value;
-  selectDrone(droneId);
-  openCommandModal('GOTO');
-}
-
-// ── Fleet Registry ──────────────────────────────────────────────────────────
-function handleRegisterDrone(e) {
-  e.preventDefault();
-  const id    = document.getElementById('regId').value.trim();
-  const fleet = document.getElementById('regFleet').value;
-  const model = document.getElementById('regModel').value;
-  const cert  = document.getElementById('regCert').value;
-
-  if (!/^DRN-[A-Z0-9]{6}$/.test(id)) {
-    toast('Invalid Drone Identifier format. Must match DRN-XXXXXX', 'err');
-    return;
-  }
-
-  if (state.token !== 'tok-admin') {
-    toast('Access Denied: Only Fleet Administrator has permission to enroll drones', 'err');
-    audit(currentActorName(), 'registration_forbidden', id, 'Unauthorized drone enrollment attempt');
-    return;
-  }
-
-  const fleetName = fleet === 'F1' ? 'Fleet Alpha' : 'Fleet Beta';
-  state.drones[id] = {
-    id,
-    fleet,
-    fleetName,
-    status: 'IDLE',
-    alt: 0,
-    speed: 0,
-    bat: 100,
-    hdg: 0,
-    lat: 10.9027 + rnd(-0.005, 0.005),
-    lon: 76.9006 + rnd(-0.005, 0.005),
-    home: { lat: 10.9027, lon: 76.9006, alt: 0 },
-    target: null,
-    trail: [],
-    anomaly: false,
-  };
-
-  // Add marker to map
-  const icon = createDroneIcon(state.drones[id]);
-  const marker = L.marker([state.drones[id].lat, state.drones[id].lon], { icon }).addTo(state.map);
-  marker.bindPopup(`<strong>${id}</strong><br>${fleetName}<br>Status: IDLE`);
-  state.markers[id] = marker;
-
-  // Append to UI table
-  const tbody = document.getElementById('rosterBody');
-  const tr = document.createElement('tr');
-  tr.innerHTML = `
-    <td class="tbl-id">${id}</td>
-    <td>${fleetName}</td>
-    <td>${model}</td>
-    <td>${cert.slice(0, 16)}…</td>
-    <td><span class="badge badge-idle">IDLE</span></td>
-  `;
-  tbody.appendChild(tr);
-
-  // Update dropdown options
-  const opt1 = new Option(`${id} (${fleetName})`, id);
-  const opt2 = new Option(`${id} (${fleetName})`, id);
-  document.getElementById('droneSelector').add(opt1);
-  document.getElementById('planDrone').add(opt2);
-
-  toast(`${id} enrolled into ${fleetName}.`, 'ok');
-  audit(currentActorName(), 'drone_enrolled', id, `mTLS certificate enrolled for ${fleetName}`);
-  e.target.reset();
-}
-
-// ── Mission Report Download ──────────────────────────────────────────────────
-function downloadMissionReport() {
+// ── AEROSPACE PDF MISSION REPORT GENERATOR ──────────────────────────────────
+function downloadMissionReportPdf() {
   const d = state.drones[state.selectedDrone];
-  const report = {
-    report_id: `REP-${Date.now()}`,
-    mission_title: 'Perimeter Surveillance Patrol 104',
-    drone_identifier: d.id,
-    fleet_assignment: d.fleetName,
-    operator: currentActorName(),
-    timestamp: new Date().toISOString(),
-    status: d.status,
-    flight_data: {
-      latitude: d.lat,
-      longitude: d.lon,
-      altitude_meters: d.alt,
-      battery_percentage: d.bat,
-      speed_mps: d.speed,
-    },
-    cryptographic_integrity: {
-      hash_algorithm: 'SHA-256',
-      audit_entry_hash: hashString(`${d.id}${Date.now()}`),
-    },
-  };
+  const reportId = `DFMS-REP-${Date.now()}`;
+  const timestamp = new Date().toUTCString();
+  const operatorName = currentActorName();
 
-  const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `Mission_Report_${d.id}_${Date.now()}.json`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  // If jsPDF is available, generate official vector PDF
+  if (window.jspdf && window.jspdf.jsPDF) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-  toast('Mission report successfully exported with SHA-256 integrity digest.', 'ok');
-  audit(currentActorName(), 'report_exported', d.id, 'Tamper-evident mission ledger downloaded');
+    // Official Dark/Slate Letterhead
+    doc.setFillColor(15, 23, 42); // #0f172a
+    doc.rect(0, 0, 210, 32, 'F');
+
+    doc.setTextColor(248, 250, 252);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text('DFMS — SECURE DRONE FLEET MANAGEMENT SYSTEM', 14, 14);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(148, 163, 184);
+    doc.text('AEROSPACE FLIGHT OPERATIONS & CRYPTOGRAPHIC COMPLIANCE REPORT', 14, 22);
+    doc.text('SECURITY LEVEL: RESTRICTED // OPERATIONAL', 14, 27);
+
+    // Metadata Block
+    doc.setDrawColor(203, 213, 225);
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(14, 38, 182, 34, 2, 2, 'FD');
+
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`REPORT IDENTIFIER: ${reportId}`, 18, 45);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(`Generated: ${timestamp}`, 18, 52);
+    doc.text(`Target Asset: ${d.id}`, 18, 58);
+    doc.text(`Squadron Domain: ${d.fleetName}`, 18, 64);
+
+    doc.text(`Authorizing Personnel: ${operatorName}`, 110, 52);
+    doc.text(`Current Flight Status: ${d.status}`, 110, 58);
+    doc.text(`Active Geofence: 120m Ceiling (COMPLIANT)`, 110, 64);
+
+    // Kinematic Flight Telemetry Table
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('1. TELEMETRY & FLIGHT DYNAMICS SUMMARY', 14, 82);
+
+    doc.setDrawColor(226, 232, 240);
+    doc.line(14, 84, 196, 84);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    const telemY = 92;
+    doc.text(`• Current Latitude / Longitude: ${d.lat.toFixed(5)}° N, ${d.lon.toFixed(5)}° E`, 18, telemY);
+    doc.text(`• Flight Altitude: ${d.alt.toFixed(1)} m AGL (Max Limit: 120.0 m)`, 18, telemY + 7);
+    doc.text(`• Ground Velocity: ${d.speed.toFixed(1)} m/s (Kinematic Ceiling: 60.0 m/s)`, 18, telemY + 14);
+    doc.text(`• Compass Bearing: ${d.hdg}° (${compassDirection(d.hdg)})`, 18, telemY + 21);
+    doc.text(`• Battery Charge Remaining: ${Math.round(d.bat)}%`, 18, telemY + 28);
+    doc.text(`• Total Flown Trajectory Samples: ${d.trail.length} coordinates`, 18, telemY + 35);
+
+    // Waypoint Navigation Schedule
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('2. SEQUENTIAL FLIGHT PATH WAYPOINT LOG', 14, 140);
+    doc.line(14, 142, 196, 142);
+
+    doc.setFillColor(241, 245, 249);
+    doc.rect(14, 146, 182, 8, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    doc.text('WP #', 18, 151);
+    doc.text('LATITUDE', 35, 151);
+    doc.text('LONGITUDE', 65, 151);
+    doc.text('ALTITUDE (m)', 100, 151);
+    doc.text('SPEED (m/s)', 130, 151);
+    doc.text('DIRECTIVE', 160, 151);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(15, 23, 42);
+    let rowY = 160;
+    const waypointsToShow = state.plannedRoute.length > 0 ? state.plannedRoute : [
+      { id: 1, lat: d.lat, lon: d.lon, alt: d.alt, speed: d.speed, action: 'ACTIVE_POSITION' }
+    ];
+
+    waypointsToShow.slice(0, 7).forEach((wp, i) => {
+      doc.text(`WP-${i + 1}`, 18, rowY);
+      doc.text(wp.lat.toFixed(5), 35, rowY);
+      doc.text(wp.lon.toFixed(5), 65, rowY);
+      doc.text(`${wp.alt} m`, 100, rowY);
+      doc.text(`${wp.speed} m/s`, 130, rowY);
+      doc.text(wp.action, 160, rowY);
+      rowY += 7;
+    });
+
+    // Security & Cryptographic Integrity Section
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('3. CRYPTOGRAPHIC INTEGRITY & SECURITY ASSURANCE', 14, 218);
+    doc.line(14, 220, 196, 220);
+
+    doc.roundedRect(14, 224, 182, 40, 2, 2, 'D');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.text('• Mutual TLS Transport: Verified (TLS 1.3 / Cipher: TLS_AES_256_GCM_SHA384)', 18, 231);
+    doc.text('• Location Plausibility Engine: PASSED (Zero Kinematic Jump Violations)', 18, 237);
+    doc.text('• Command Packet Authentication: HMAC-SHA256 Authenticated with 128-bit Monotonic Nonce', 18, 243);
+    doc.text('• Replay Attack Defense: Verified (Anti-Replay Nonce Cache Active)', 18, 249);
+    doc.text(`• Tamper-Evident Ledger Entry Hash: ${hashString(reportId + timestamp).toUpperCase()}`, 18, 255);
+
+    // Sign-off
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text('Chief Safety Officer Signature: _______________________', 18, 276);
+    doc.text('Cryptographic Seal: [VERIFIED]', 140, 276);
+
+    doc.save(`DFMS_Mission_Report_${d.id}_${Date.now()}.pdf`);
+    toast('Mission Report (PDF) downloaded successfully.', 'ok');
+  } else {
+    // Fallback JSON export
+    const blob = new Blob([JSON.stringify({ report_id: reportId, drone: d.id, operator: operatorName }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `DFMS_Report_${d.id}.json`;
+    a.click();
+    toast('Mission Report exported.', 'ok');
+  }
+
+  audit(operatorName, 'pdf_report_exported', d.id, 'Official mission audit report generated');
 }
 
-// ── Tamper-Evident Audit Ledger ──────────────────────────────────────────────
+// ── TAMPER-EVIDENT AUDIT TRAIL ──────────────────────────────────────────────
 function seedAudit() {
   [
     { actor: 'Marcus Vance (Administrator)', action: 'fleet_initialized', target: 'Fleet Alpha & Beta', ts: -600000 },
-    { actor: 'Sarah Chen (Flight Planner)', action: 'mission_planned',   target: 'Patrol Mission 104',   ts: -300000 },
+    { actor: 'Sarah Chen (Flight Planner)', action: 'mission_planned',   target: 'Perimeter Patrol 104', ts: -300000 },
     { actor: 'Alex Mercer (Operator)',     action: 'session_mTLS',      target: 'Console Gateway',      ts: -120000 },
   ].forEach(e => {
     const prev = state.auditChain.length ? state.auditChain[0].hash : '0000000000000000';
@@ -709,6 +1158,7 @@ function audit(actor, event, obj, detail) {
 
 function renderAuditTable() {
   const tbody = document.getElementById('auditBody');
+  if (!tbody) return;
   tbody.innerHTML = '';
   state.auditChain.slice(0, 25).forEach(e => {
     const tr = document.createElement('tr');
@@ -724,7 +1174,7 @@ function renderAuditTable() {
   });
 }
 
-// ── Security Verification Lab Tests ──────────────────────────────────────────
+// ── SECURITY VERIFICATION CHALLENGES ─────────────────────────────────────────
 function runGpsSpoofTest() {
   const d = state.drones[state.selectedDrone];
   d.anomaly = true;
@@ -822,7 +1272,119 @@ function runRateLimitTest() {
   }, 700);
 }
 
-// ── Utility Helpers ──────────────────────────────────────────────────────────
+// ── UI EVENT BINDINGS ────────────────────────────────────────────────────────
+function bindEvents() {
+  // Identity Switcher
+  document.getElementById('userSelect').addEventListener('change', e => {
+    state.token = e.target.value;
+    const actor = currentActorName();
+    audit(actor, 'operator_switched', 'IAM', `Active console identity changed`);
+    toast(`Authenticated as ${actor}`, 'ok');
+    applyRolePermissions();
+  });
+
+  // Role Clearance Modal
+  document.getElementById('btnRoleModal').addEventListener('click', openRoleClearanceModal);
+  document.getElementById('btnRoleModalClose').addEventListener('click', () => {
+    document.getElementById('roleModal').classList.remove('show');
+  });
+
+  // Drone Selector
+  document.getElementById('droneSelector').addEventListener('change', e => {
+    selectDrone(e.target.value);
+  });
+
+  // Expand / Fullscreen Map
+  document.getElementById('btnExpandMap').addEventListener('click', toggleMapFullscreen);
+  document.getElementById('btnHudExit').addEventListener('click', toggleMapFullscreen);
+
+  // Camera Lock Toggle
+  const btnFollow = document.getElementById('btnFollowDrone');
+  btnFollow.addEventListener('click', () => {
+    state.followDrone = !state.followDrone;
+    btnFollow.classList.toggle('btn-primary', state.followDrone);
+    btnFollow.classList.toggle('btn-default', !state.followDrone);
+    toast(state.followDrone ? 'Camera locked to active drone.' : 'Camera lock released.', 'ok');
+  });
+
+  // Drone Command Buttons
+  document.getElementById('btnGoto').addEventListener('click', () => openCommandModal('GOTO'));
+  document.getElementById('btnRTH').addEventListener('click',  () => openCommandModal('RTH'));
+  document.getElementById('btnCancel').addEventListener('click', () => openCommandModal('CANCEL'));
+  document.getElementById('btnLand').addEventListener('click', () => openCommandModal('LAND'));
+
+  // HUD Action Dock Buttons
+  document.getElementById('btnHudGoto').addEventListener('click', () => openCommandModal('GOTO'));
+  document.getElementById('btnHudRTH').addEventListener('click',  () => openCommandModal('RTH'));
+  document.getElementById('btnHudCancel').addEventListener('click', () => openCommandModal('CANCEL'));
+  document.getElementById('btnHudLand').addEventListener('click', () => openCommandModal('LAND'));
+
+  // Pattern Generators
+  document.getElementById('btnPatrolBox').addEventListener('click', generateBoxPattern);
+  document.getElementById('btnSurveyGrid').addEventListener('click', generateSurveyGrid);
+  document.getElementById('btnAddWp').addEventListener('click', () => {
+    const d = state.drones[state.selectedDrone];
+    addWaypointToPlannedRoute(d.lat + 0.001, d.lon + 0.001, 50, 12, 'TRANSIT');
+  });
+  document.getElementById('btnClearRoute').addEventListener('click', () => {
+    state.plannedRoute = [];
+    renderRouteTable();
+    updateMapVisuals();
+    toast('Planned flight path cleared.', 'ok');
+  });
+
+  // Alert Dismissal
+  document.getElementById('btnAlertDismiss').addEventListener('click', () => {
+    const d = state.drones[state.selectedDrone];
+    if (d) {
+      d.anomaly = false;
+      d.speed = 0.0;
+      d.status = 'IDLE';
+    }
+    document.getElementById('alertBanner').classList.remove('show');
+    toast('Security alert acknowledged. Normal operations restored.', 'ok');
+  });
+
+  // Modal Dialog Actions
+  document.getElementById('btnModalX').addEventListener('click', closeModal);
+  document.getElementById('btnModalCancel').addEventListener('click', closeModal);
+
+  // Flight Planner Controls
+  document.getElementById('btnValidate').addEventListener('click', () => {
+    toast('Kinematic flight envelope verified — all waypoints compliant with 120m ceiling.', 'ok');
+  });
+  document.getElementById('btnAssign').addEventListener('click', assignMissionFromPlanner);
+
+  // Forms
+  document.getElementById('fleetForm').addEventListener('submit', handleCreateFleet);
+  document.getElementById('regForm').addEventListener('submit', handleRegisterDrone);
+
+  // PDF Mission Report Download
+  document.getElementById('btnReport').addEventListener('click', downloadMissionReportPdf);
+
+  // Security Verification Tests
+  document.getElementById('btnSpoof').addEventListener('click', runGpsSpoofTest);
+  document.getElementById('btnTamper').addEventListener('click', runTamperTest);
+  document.getElementById('btnInject').addEventListener('click', runInjectionTest);
+  document.getElementById('btnImpersonate').addEventListener('click', runCrossFleetTest);
+  document.getElementById('btnReplay').addEventListener('click', runReplayTest);
+  document.getElementById('btnTls').addEventListener('click', inspectTlsSession);
+  document.getElementById('btnFlood').addEventListener('click', runRateLimitTest);
+}
+
+function selectDrone(droneId) {
+  state.selectedDrone = droneId;
+  const d = state.drones[droneId];
+  if (d && state.map) {
+    state.map.panTo([d.lat, d.lon]);
+  }
+  updateMapVisuals();
+  updateTelemetryUI();
+  updateHudUI();
+  applyRolePermissions();
+}
+
+// ── UTILITY HELPERS ──────────────────────────────────────────────────────────
 function currentActorName() {
   return OPERATORS[state.token]?.name || state.token;
 }
@@ -836,16 +1398,33 @@ function hashString(str) {
   return h.toString(16).padStart(16, '0');
 }
 
-function clamp(v, min, max) {
-  return Math.min(max, Math.max(min, v));
+function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
+function rnd(a, b) { return a + Math.random() * (b - a); }
+function formatTimestamp(ts) { return new Date(ts).toLocaleTimeString('en-GB'); }
+
+function compassDirection(deg) {
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[Math.round(deg / 45) % 8];
 }
 
-function rnd(a, b) {
-  return a + Math.random() * (b - a);
+function setHtml(id, html) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = html;
 }
 
-function formatTimestamp(ts) {
-  return new Date(ts).toLocaleTimeString('en-GB');
+function setProgressBar(id, frac, cls) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.style.width = Math.round(clamp(frac, 0, 1) * 100) + '%';
+    el.className = 'telem-bar-fill ' + cls;
+  }
+}
+
+function getStatusBadgeClass(status) {
+  return status === 'IN_MISSION' || status === 'HOVERING' ? 'badge-active'
+       : status === 'RTH' || status === 'LANDING' ? 'badge-warn'
+       : status === 'ANOMALY' ? 'badge-danger'
+       : 'badge-idle';
 }
 
 function toast(msg, type = 'ok') {

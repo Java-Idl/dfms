@@ -234,12 +234,94 @@ body {
   height: 380px;
   position: relative;
   border-top: 1px solid var(--border);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.map-wrap.expanded {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  border: none;
 }
 
 .map-view {
   width: 100%;
   height: 100%;
   background: #111;
+}
+
+/* Floating Controls & Overlays */
+.map-btn-overlay {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1000;
+  display: flex;
+  gap: 8px;
+}
+
+.map-hud-bar {
+  display: none;
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(17, 24, 39, 0.94);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 8px 18px;
+  z-index: 1000;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  align-items: center;
+  gap: 20px;
+}
+
+.map-wrap.expanded .map-hud-bar {
+  display: flex;
+}
+
+.map-hud-actions {
+  display: none;
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(17, 24, 39, 0.94);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 8px 14px;
+  z-index: 1000;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  gap: 10px;
+}
+
+.map-wrap.expanded .map-hud-actions {
+  display: flex;
+}
+
+.hud-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hud-label {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.hud-val {
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--mono);
+  color: var(--text-bright);
 }
 
 /* Leaflet Dark UI Overrides */
@@ -764,6 +846,164 @@ body {
 
 hr.divider { border: none; border-top: 1px solid var(--border); }
 
+/* ── SOPHISTICATED ROUTE PLANNER ── */
+.pattern-btn-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.pattern-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-size: 11px;
+  font-family: var(--font);
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.pattern-btn:hover {
+  background: var(--border2);
+  color: var(--text-bright);
+}
+
+.route-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.route-metric-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.route-metric-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+
+.route-metric-val {
+  font-size: 15px;
+  font-weight: 600;
+  font-family: var(--mono);
+  color: var(--text-bright);
+}
+
+.wp-num-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: #1e1b4b;
+  border: 1px solid #4f46e5;
+  color: #c7d2fe;
+  border-radius: 50%;
+  font-size: 10px;
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+.btn-icon-del {
+  background: none;
+  border: none;
+  color: var(--red);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  font-size: 14px;
+}
+.btn-icon-del:hover { background: rgba(239, 68, 68, 0.15); }
+
+/* ── ROLE SWITCHER & PERMISSIONS ── */
+.role-badge {
+  font-size: 10px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+}
+.role-badge.admin   { background: rgba(147, 51, 234, 0.2); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.4); }
+.role-badge.planner { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); }
+.role-badge.operator{ background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
+.role-badge.auditor { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+
+.role-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.role-account-card {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: all 0.15s ease;
+}
+
+.role-account-card:hover {
+  background: var(--surface);
+  border-color: #4b5563;
+}
+
+.role-account-card.active {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.perm-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin-top: 14px;
+}
+
+.perm-matrix-table th, .perm-matrix-table td {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.perm-matrix-table th {
+  background: var(--surface2);
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+/* Locked / Disabled Button Styling */
+.btn:disabled, .btn.btn-locked {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.6);
+  pointer-events: auto !important;
+}
+
 @media (max-width: 900px) {
   .grid-2 { grid-template-columns: 1fr; }
+  .route-metrics-grid { grid-template-columns: 1fr 1fr; }
 }
+

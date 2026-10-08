@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DFMS — Drone Fleet Management System</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -30,6 +31,7 @@
         <option value="tok-auditor">Elena Rostova (Compliance Auditor)</option>
       </select>
     </div>
+    <button id="btnRoleModal" class="btn btn-default" style="font-size:11px;padding:4px 9px;">Role Clearance</button>
     <div class="status-pill">
       <span class="status-dot"></span>
       mTLS SECURED
@@ -39,23 +41,23 @@
 
 <!-- TABS -->
 <nav class="tabs">
-  <button class="tab active" data-tab="ops">
+  <button class="tab active" data-tab="ops" id="tab-btn-ops">
     <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
     Mission Operations
   </button>
-  <button class="tab" data-tab="planner">
+  <button class="tab" data-tab="planner" id="tab-btn-planner">
     <svg viewBox="0 0 24 24"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
     Flight Planner
   </button>
-  <button class="tab" data-tab="registry">
+  <button class="tab" data-tab="registry" id="tab-btn-registry">
     <svg viewBox="0 0 24 24"><path d="M20 6h-2.18c.07-.44.18-.88.18-1.36C18 2.06 15.94 0 13.36 0c-1.31 0-2.43.52-3.29 1.38L9 2.46l-1.07-1.08C7.07.52 5.95 0 4.64 0 2.06 0 0 2.06 0 4.64c0 .48.11.92.18 1.36H0L0 20c0 1.1.9 2 2 2h20c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>
     Fleet Registry
   </button>
-  <button class="tab" data-tab="audit">
+  <button class="tab" data-tab="audit" id="tab-btn-audit">
     <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zM16 18H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
     Audit Log
   </button>
-  <button class="tab" data-tab="security">
+  <button class="tab" data-tab="security" id="tab-btn-security">
     <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
     Security Defense Lab
   </button>
@@ -85,20 +87,61 @@
               <svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
               Flight Path &amp; Live Map
             </div>
-            <div class="drone-select-row">
-              <select id="droneSelector">
-                <option value="DRN-ABC123">DRN-ABC123 (Fleet Alpha)</option>
-                <option value="DRN-XYZ789">DRN-XYZ789 (Fleet Beta)</option>
-              </select>
-              <span id="droneStatusBadge" class="badge badge-active">IN_MISSION</span>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div class="drone-select-row">
+                <select id="droneSelector">
+                  <option value="DRN-ABC123">DRN-ABC123 (Fleet Alpha)</option>
+                  <option value="DRN-XYZ789">DRN-XYZ789 (Fleet Beta)</option>
+                </select>
+                <span id="droneStatusBadge" class="badge badge-active">IN_MISSION</span>
+              </div>
+              <button id="btnFollowDrone" class="btn btn-default" style="font-size:11px;padding:4px 8px;" title="Follow Drone Camera Lock">Camera Lock</button>
+              <button id="btnExpandMap" class="btn btn-default" style="font-size:11px;padding:4px 8px;" title="Toggle Fullscreen Map">⛶ Fullscreen</button>
             </div>
           </div>
-          <div class="map-wrap">
+          <div class="map-wrap" id="mapWrap">
             <div id="map" class="map-view"></div>
+
+            <!-- Floating HUD (Visible in Fullscreen / Expanded Mode) -->
+            <div class="map-hud-bar" id="mapHudBar">
+              <div class="hud-item">
+                <span class="hud-label">Drone</span>
+                <span class="hud-val" id="hudDrone">DRN-ABC123</span>
+              </div>
+              <div class="hud-item">
+                <span class="hud-label">Altitude</span>
+                <span class="hud-val" id="hudAlt">45.0 m</span>
+              </div>
+              <div class="hud-item">
+                <span class="hud-label">Speed</span>
+                <span class="hud-val" id="hudSpeed">11.4 m/s</span>
+              </div>
+              <div class="hud-item">
+                <span class="hud-label">Battery</span>
+                <span class="hud-val" id="hudBat">82%</span>
+              </div>
+              <div class="hud-item">
+                <span class="hud-label">Heading</span>
+                <span class="hud-val" id="hudHdg">042° NE</span>
+              </div>
+              <div class="hud-item">
+                <span class="hud-label">Next WP</span>
+                <span class="hud-val" id="hudNextWp">WP1 (120m)</span>
+              </div>
+            </div>
+
+            <!-- Floating Action Dock in Fullscreen Mode -->
+            <div class="map-hud-actions" id="mapHudActions">
+              <button class="btn btn-primary" id="btnHudGoto" style="padding:6px 12px;font-size:12px;">GOTO Waypoint</button>
+              <button class="btn btn-default" id="btnHudRTH" style="padding:6px 12px;font-size:12px;">Return Home</button>
+              <button class="btn btn-warn" id="btnHudCancel" style="padding:6px 12px;font-size:12px;">Cancel Mission</button>
+              <button class="btn btn-danger" id="btnHudLand" style="padding:6px 12px;font-size:12px;">Emergency Land</button>
+              <button class="btn btn-default" id="btnHudExit" style="padding:6px 12px;font-size:12px;">Exit Fullscreen</button>
+            </div>
           </div>
           <div class="map-footer">
             <span id="coordBox">LAT 10.9027 · LON 76.9006</span>
-            <span id="zoneBox">Flight Zone Alpha · 120 m Max Altitude</span>
+            <span id="zoneBox">Fleet Alpha · 120 m Max Altitude</span>
             <span id="lastUpdateLabel">Live Telemetry Active</span>
           </div>
         </div>
@@ -146,10 +189,10 @@
               <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
               Drone Command Controls
             </div>
-            <span class="badge badge-info">HMAC-SHA256 Signed</span>
+            <span class="badge badge-info" id="cmdRoleBadge">HMAC-SHA256 Signed</span>
           </div>
           <div class="card-body">
-            <p class="section-note">Commands are cryptographically signed with unique 128-bit nonces and authenticated against fleet permissions.</p>
+            <p class="section-note" id="cmdRoleDesc">Commands are cryptographically signed with unique 128-bit nonces and authenticated against fleet permissions.</p>
             <div class="cmd-list" style="margin-top:12px;">
               <button id="btnGoto" class="btn btn-primary">
                 <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
@@ -174,139 +217,240 @@
     </div>
   </div>
 
-  <!-- FLIGHT PLANNER -->
+  <!-- FLIGHT PLANNER (SOPHISTICATED MULTI-WAYPOINT PLANNER) -->
   <div id="panel-planner" class="panel">
     <div class="card">
       <div class="card-head">
         <div class="card-title">
           <svg viewBox="0 0 24 24"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5z"/></svg>
-          Flight Mission Assignment
+          Multi-Waypoint Flight Mission Planner
         </div>
-        <span class="badge badge-idle">Click map to pick destination</span>
+        <span class="badge badge-idle">Click map to append waypoints</span>
       </div>
-      <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
-        <div style="display:flex;flex-direction:column;gap:12px;">
-          <div class="form-row">
-            <label class="form-label">Target Drone</label>
-            <select class="form-select" id="planDrone">
-              <option value="DRN-ABC123">DRN-ABC123 (Fleet Alpha)</option>
-              <option value="DRN-XYZ789">DRN-XYZ789 (Fleet Beta)</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label class="form-label">Geofence Boundary</label>
-            <select class="form-select" id="planGeofence">
-              <option value="alpha">Zone Alpha — Campus &amp; Tech Corridor (120 m max)</option>
-              <option value="beta">Zone Beta — South Perimeter (100 m max)</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label class="form-label">Mission Purpose</label>
-            <input class="form-input" id="planMissionName" value="Perimeter Surveillance Patrol">
-          </div>
+      <div class="card-body">
+        <!-- Pattern Presets Toolbar -->
+        <div class="pattern-btn-bar">
+          <button class="pattern-btn" id="btnPatrolBox">
+            <svg style="width:12px;height:12px;" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            Perimeter Box (4 WPs)
+          </button>
+          <button class="pattern-btn" id="btnSurveyGrid">
+            <svg style="width:12px;height:12px;" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2"/></svg>
+            Lawnmower Survey (6 WPs)
+          </button>
+          <button class="pattern-btn" id="btnAddWp">
+            <svg style="width:12px;height:12px;" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2"/></svg>
+            Add Waypoint at Crosshairs
+          </button>
+          <button class="pattern-btn" id="btnClearRoute" style="color:var(--red);">
+            ✕ Clear Planned Path
+          </button>
         </div>
 
-        <div style="display:flex;flex-direction:column;gap:12px;">
-          <p class="form-label" style="text-transform:uppercase;">Destination Waypoint Coordinates (Max 120 m Altitude)</p>
-          <div class="form-grid-3">
-            <div class="form-row">
-              <label class="form-label">Latitude (°)</label>
-              <input class="form-input" type="number" id="wpLat" value="10.9055" step="0.0001">
-            </div>
-            <div class="form-row">
-              <label class="form-label">Longitude (°)</label>
-              <input class="form-input" type="number" id="wpLon" value="76.9032" step="0.0001">
-            </div>
-            <div class="form-row">
-              <label class="form-label">Altitude (m)</label>
-              <input class="form-input" type="number" id="wpAlt" value="50" step="1">
-            </div>
-          </div>
-
-          <div id="valBox" class="val-box"></div>
-
-          <div style="display:flex;gap:8px;margin-top:4px;">
-            <button id="btnValidate" class="btn btn-default" style="flex:1">Validate Coordinates</button>
-            <button id="btnAssign" class="btn btn-primary" style="flex:1">Sign &amp; Assign GOTO</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- FLEET REGISTRY -->
-  <div id="panel-registry" class="panel">
-    <div style="display:grid;grid-template-columns:320px 1fr;gap:16px;align-items:start;">
-      <div class="card">
-        <div class="card-head">
-          <div class="card-title">Register Drone</div>
-          <span class="badge badge-idle">Admin Privilege Required</span>
-        </div>
-        <div class="card-body">
-          <form id="regForm" style="display:flex;flex-direction:column;gap:10px;">
-            <div class="form-row">
-              <label class="form-label">Drone Identifier</label>
-              <input class="form-input" id="regId" placeholder="DRN-K9P2W1" required>
-            </div>
-            <div class="form-row">
-              <label class="form-label">Assigned Fleet</label>
-              <select class="form-select" id="regFleet">
-                <option value="F1">Fleet Alpha</option>
-                <option value="F2">Fleet Beta</option>
-              </select>
-            </div>
-            <div class="form-row">
-              <label class="form-label">Hardware Model</label>
-              <input class="form-input" id="regModel" value="AeroGuard Quad-V4">
-            </div>
-            <div class="form-row">
-              <label class="form-label">Client Certificate SHA-256 Fingerprint</label>
-              <input class="form-input" id="regCert" placeholder="AA:BB:CC:DD:..." required>
-            </div>
-            <button type="submit" class="btn btn-primary" style="margin-top:4px;">Enroll Drone in Fleet</button>
-          </form>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-head">
-          <div class="card-title">Active Fleet Roster</div>
-          <span class="badge badge-idle">mTLS Device Registry</span>
-        </div>
-        <div class="tbl-wrap">
+        <!-- Waypoint Sequence Table -->
+        <div class="tbl-wrap" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:14px;">
           <table class="tbl">
             <thead>
               <tr>
-                <th>Drone Identifier</th>
-                <th>Assigned Fleet</th>
-                <th>Hardware Model</th>
-                <th>Certificate Fingerprint</th>
-                <th>Current Status</th>
+                <th style="width:40px;">WP</th>
+                <th>Latitude</th>
+                <th>Longitude</th>
+                <th>Altitude (m)</th>
+                <th>Speed (m/s)</th>
+                <th>Flight Task</th>
+                <th style="width:50px;">Action</th>
               </tr>
             </thead>
-            <tbody id="rosterBody">
-              <tr>
-                <td class="tbl-id">DRN-ABC123</td>
-                <td>Fleet Alpha</td>
-                <td>AeroGuard Quad-V4</td>
-                <td>9A:F1:4C:E2:01:8B…</td>
-                <td><span class="badge badge-active">IN_MISSION</span></td>
-              </tr>
-              <tr>
-                <td class="tbl-id">DRN-XYZ789</td>
-                <td>Fleet Beta</td>
-                <td>AeroGuard Quad-V4</td>
-                <td>F4:11:09:A3:88:CD…</td>
-                <td><span class="badge badge-idle">IDLE</span></td>
-              </tr>
+            <tbody id="routeTableBody">
+              <!-- Dynamically populated -->
             </tbody>
           </table>
+        </div>
+
+        <!-- Route Metrics Summary Cards -->
+        <div class="route-metrics-grid">
+          <div class="route-metric-card">
+            <span class="route-metric-label">Total Distance</span>
+            <span class="route-metric-val" id="metricDist">0 m</span>
+          </div>
+          <div class="route-metric-card">
+            <span class="route-metric-label">Estimated Flight Time</span>
+            <span class="route-metric-val" id="metricTime">00:00</span>
+          </div>
+          <div class="route-metric-card">
+            <span class="route-metric-label">Battery Required</span>
+            <span class="route-metric-val" id="metricBat">0%</span>
+          </div>
+          <div class="route-metric-card">
+            <span class="route-metric-label">Geofence Compliance</span>
+            <span class="route-metric-val" id="metricGeofence" style="color:var(--green);font-size:13px;">✓ COMPLIANT</span>
+          </div>
+        </div>
+
+        <!-- Assignment Controls -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;align-items:end;">
+          <div style="display:flex;gap:12px;">
+            <div class="form-row" style="flex:1;">
+              <label class="form-label">Assign to Drone</label>
+              <select class="form-select" id="planDrone">
+                <option value="DRN-ABC123">DRN-ABC123 (Fleet Alpha)</option>
+                <option value="DRN-XYZ789">DRN-XYZ789 (Fleet Beta)</option>
+              </select>
+            </div>
+            <div class="form-row" style="flex:1;">
+              <label class="form-label">Mission Designation</label>
+              <input class="form-input" id="planMissionName" value="Perimeter Surveillance Patrol 104">
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button id="btnValidate" class="btn btn-default" style="flex:1;">Validate Kinematics</button>
+            <button id="btnAssign" class="btn btn-primary" style="flex:1;">Sign &amp; Dispatch Mission</button>
+          </div>
+        </div>
+        <div id="valBox" class="val-box" style="margin-top:10px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FLEET REGISTRY & FLEET CREATION -->
+  <div id="panel-registry" class="panel">
+    <div style="display:grid;grid-template-columns:360px 1fr;gap:16px;align-items:start;">
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <!-- Create Fleet Card -->
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">Establish Fleet Squadron</div>
+            <span class="badge badge-idle">Admin Privilege</span>
+          </div>
+          <div class="card-body">
+            <form id="fleetForm" style="display:flex;flex-direction:column;gap:10px;">
+              <div class="form-row">
+                <label class="form-label">Fleet Code (e.g. F3 or GAMMA)</label>
+                <input class="form-input" id="fleetCode" placeholder="F3" required>
+              </div>
+              <div class="form-row">
+                <label class="form-label">Squadron Designation</label>
+                <input class="form-input" id="fleetName" placeholder="Fleet Gamma (Search &amp; Rescue)" required>
+              </div>
+              <div class="form-grid-2">
+                <div class="form-row">
+                  <label class="form-label">Base Latitude</label>
+                  <input class="form-input" type="number" step="0.0001" id="fleetLat" value="10.9080" required>
+                </div>
+                <div class="form-row">
+                  <label class="form-label">Base Longitude</label>
+                  <input class="form-input" type="number" step="0.0001" id="fleetLon" value="76.9050" required>
+                </div>
+              </div>
+              <div class="form-row">
+                <label class="form-label">Geofence Radius (meters)</label>
+                <input class="form-input" type="number" id="fleetRadius" value="850">
+              </div>
+              <button type="submit" class="btn btn-default" id="btnCreateFleet" style="margin-top:4px;">Establish Fleet Squadron</button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Register Drone Card -->
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">Register Drone Hardware</div>
+            <span class="badge badge-idle">Admin Privilege</span>
+          </div>
+          <div class="card-body">
+            <form id="regForm" style="display:flex;flex-direction:column;gap:10px;">
+              <div class="form-row">
+                <label class="form-label">Drone Identifier</label>
+                <input class="form-input" id="regId" placeholder="DRN-K9P2W1" required>
+              </div>
+              <div class="form-row">
+                <label class="form-label">Assigned Fleet</label>
+                <select class="form-select" id="regFleet">
+                  <option value="F1">Fleet Alpha</option>
+                  <option value="F2">Fleet Beta</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label class="form-label">Hardware Model</label>
+                <input class="form-input" id="regModel" value="AeroGuard Quad-V4">
+              </div>
+              <div class="form-row">
+                <label class="form-label">Client Certificate SHA-256 Fingerprint</label>
+                <input class="form-input" id="regCert" placeholder="AA:BB:CC:DD:..." required>
+              </div>
+              <button type="submit" class="btn btn-primary" id="btnEnrollDrone" style="margin-top:4px;">Enroll Drone in Fleet</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Fleets and Drones Rosters -->
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <!-- Active Fleets Roster -->
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">Operational Squadrons &amp; Base Stations</div>
+            <span class="badge badge-idle" id="fleetCountBadge">2 Fleets Active</span>
+          </div>
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Squadron Designation</th>
+                  <th>Base Station Coordinates</th>
+                  <th>Geofence Envelope</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="fleetRosterBody">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Active Drones Roster -->
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">Enrolled Drone Fleet Roster</div>
+            <span class="badge badge-idle">mTLS Certificate Registry</span>
+          </div>
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead>
+                <tr>
+                  <th>Drone Identifier</th>
+                  <th>Assigned Fleet</th>
+                  <th>Hardware Model</th>
+                  <th>Certificate Fingerprint</th>
+                  <th>Current Status</th>
+                </tr>
+              </thead>
+              <tbody id="rosterBody">
+                <tr>
+                  <td class="tbl-id">DRN-ABC123</td>
+                  <td>Fleet Alpha</td>
+                  <td>AeroGuard Quad-V4</td>
+                  <td>9A:F1:4C:E2:01:8B…</td>
+                  <td><span class="badge badge-active">IN_MISSION</span></td>
+                </tr>
+                <tr>
+                  <td class="tbl-id">DRN-XYZ789</td>
+                  <td>Fleet Beta</td>
+                  <td>AeroGuard Quad-V4</td>
+                  <td>F4:11:09:A3:88:CD…</td>
+                  <td><span class="badge badge-idle">IDLE</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- AUDIT LOG -->
+  <!-- AUDIT LOG & PDF REPORT -->
   <div id="panel-audit" class="panel">
     <div class="card">
       <div class="card-head">
@@ -316,7 +460,10 @@
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="badge badge-idle">SHA-256 Hash Chained</span>
-          <button id="btnReport" class="btn btn-default" style="width:auto;font-size:12px;padding:5px 12px;">Download Mission Report</button>
+          <button id="btnReport" class="btn btn-primary" style="width:auto;font-size:12px;padding:5px 12px;">
+            <svg style="width:13px;height:13px;margin-right:4px;" viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/></svg>
+            Download Mission Report (PDF)
+          </button>
         </div>
       </div>
       <p class="section-note" style="padding:10px 16px 0;">Cryptographically chained event ledger. Any retroactive alteration breaks the forward SHA-256 hash sequence.</p>
@@ -408,7 +555,54 @@
 
 </main>
 
-<!-- MODAL -->
+<!-- ROLE CLEARANCE & ACCESS MODAL -->
+<div id="roleModal" class="modal-bg">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-head">
+      <h3>Operator Authentication &amp; Role Clearance</h3>
+      <button id="btnRoleModalClose" class="modal-close">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="section-note">In production, identity is established via cryptographic X.509 client certificates and Bearer tokens. Select an active personnel profile below to test role-specific UI views and access control boundaries:</p>
+      <div class="role-grid" id="roleGrid">
+        <!-- Dynamically rendered role cards -->
+      </div>
+      <table class="perm-matrix-table">
+        <thead>
+          <tr>
+            <th>Role</th>
+            <th>Fleet Scope</th>
+            <th>Capabilities</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="role-badge admin">Administrator</span></td>
+            <td>Global (All)</td>
+            <td>Fleet Creation, Drone Enrollment, Security Policies, All Commands</td>
+          </tr>
+          <tr>
+            <td><span class="role-badge planner">Flight Planner</span></td>
+            <td>Fleet Alpha</td>
+            <td>Multi-Waypoint Route Planning, Mission Assignment, Telemetry</td>
+          </tr>
+          <tr>
+            <td><span class="role-badge operator">Drone Operator</span></td>
+            <td>Fleet Scoped</td>
+            <td>Live Telemetry, In-Flight Directives (GOTO, RTH, LAND, CANCEL)</td>
+          </tr>
+          <tr>
+            <td><span class="role-badge auditor">Auditor</span></td>
+            <td>Read-Only</td>
+            <td>Tamper-Evident Audit Log, PDF Mission Reports, Security Verification</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- COMMAND CONFIRM MODAL -->
 <div id="modal" class="modal-bg">
   <div class="modal">
     <div class="modal-head">
@@ -426,7 +620,7 @@
 <!-- TOASTS -->
 <div id="toasts" class="toasts"></div>
 
-<!-- LEAFLET & APPLICATION LOGIC -->
+<!-- SCRIPTS -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script src="/static/app.js"></script>
 </body>
